@@ -1,6 +1,11 @@
 
 .PHONY: all test clean
 
+all:
+	cd keymgr; go build
+	cd pelsh; go build
+
+
 debug:
 	go build -gcflags "-N -l"
 	go install -gcflags "-N -l"
@@ -34,3 +39,12 @@ docker-push:
 
 ## pushing jaten/pelica03 resulted in this url:
 ## Pushing tag for rev [cff7026d2597] on {https://cdn-registry-1.docker.io/v1/repositories/jaten/pelican03/tags/latest}
+
+docker-get-ip:
+	docker inspect -f "{{ .NetworkSettings.IPAddress }}" $$(docker ps -l -q)
+
+sshroot:
+	docker-ssh `docker ps -l -q`
+
+sshpna:
+	ssh -i ~/.ssh/id_rsa_pelican_newacct_wellknown pelican_newacct@$$(docker inspect -f "{{ .NetworkSettings.IPAddress }}" $$(docker ps -l -q))
