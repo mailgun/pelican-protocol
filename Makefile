@@ -47,4 +47,5 @@ sshroot:
 	docker-ssh `docker ps -l -q` ${ARGS}
 
 sshpna:
-	ssh -i ~/.ssh/id_rsa_pelican_newacct_wellknown pelican_newacct@$$(docker inspect -f "{{ .NetworkSettings.IPAddress }}" $$(docker ps -l -q)) ${ARGS}
+	chmod og-rwx dot.ssh/id_rsa_pelican_newacct_wellknown
+	ssh -i dot.ssh/id_rsa_pelican_newacct_wellknown pelican_newacct@$$(docker inspect -f "{{ .NetworkSettings.IPAddress }}" $$(docker ps -l -q)) ${ARGS}
