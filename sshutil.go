@@ -5,6 +5,7 @@ import (
 	"code.google.com/p/go.crypto/ssh"
 	"fmt"
 	"io/ioutil"
+	"net"
 )
 
 func loadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
@@ -19,8 +20,12 @@ func loadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
 	return privkey, err
 }
 
-// callers should do defer sess.Close() with the sess returned in the first return value.
-func sshConnect(username string, keypath string, host string, port int, command string) (*ssh.Session, []byte, error) {
+func hostKeyCallback(hostname string, remote net.Addr, key ssh.PublicKey) error {
+	fmt.Printf("in hostKeyCallback(), hostname='%s', remote='%s', key='%s'\n", hostname, remote, key)
+	return nil
+}
+
+func sshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {
 
 	privkey, err := loadRSAPrivateKey(keypath)
 	if err != nil {
@@ -32,6 +37,10 @@ func sshConnect(username string, keypath string, host string, port int, command 
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(privkey),
 		},
+		// HostKeyCallback, if not nil, is called during the cryptographic
+		// handshake to validate the server's host key. A nil HostKeyCallback
+		// implies that all host keys are accepted.
+		HostKeyCallback: hostKeyCallback,
 	}
 	hostport := fmt.Sprintf("%s:%d", host, port)
 	cli, err := ssh.Dial("tcp", hostport, cfg)
@@ -45,6 +54,8 @@ func sshConnect(username string, keypath string, host string, port int, command 
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create session to '%s': err = '%s'", hostport, err.Error()))
 	}
+	// you can only do one command on a session, so might as well close.
+	defer sess.Close()
 
 	// Once a Session is created, you can execute a single command on
 	// the remote side using the Run method.
@@ -55,5 +66,5 @@ func sshConnect(username string, keypath string, host string, port int, command 
 	}
 	//fmt.Println(b.String())
 
-	return sess, b.Bytes(), nil
+	return b.Bytes(), nil
 }
