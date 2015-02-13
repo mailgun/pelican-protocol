@@ -1,21 +1,53 @@
 package pelican
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func StartDockerImage(image string) {
-	err := exec.Command("/usr/bin/docker", "run", image, "/sbin/my_init").Start()
+	cmd := exec.Command("/usr/bin/docker", "run", image, "/sbin/my_init")
+
+	var oe bytes.Buffer
+	cmd.Stdout = &oe
+	cmd.Stderr = &oe
+
+	err := cmd.Start()
 	if err != nil {
 		//fmt.Fprintf(os.Stderr, "err '%s' in StartDockerImage(). Out: '%s'", err, string(out))
 		panic(err)
 	}
+	// wait until it is up, 3000 msec
+	tries := 30
+	waittm := 100 * time.Millisecond
+	up := false
+	for i := 0; i < tries; i++ {
+		if bytes.Contains(oe.Bytes(), []byte("*** Runit started as PID")) {
+			fmt.Printf("found desired header in '%s'\n", string(oe.Bytes()))
+			up = true
+			break
+		}
+		time.Sleep(waittm)
+	}
+
+	if !up {
+		panic(fmt.Sprintf("StartDockerImage() could not detect docker running after %v, output: '%s'\n", time.Duration(tries)*waittm, string(oe.Bytes())))
+	}
+
 	fmt.Printf("StartDockerImage() done.\n")
 }
 
 func SshAsRootIntoDocker(cmd []string) ([]byte, error) {
+
+	// examples:
+	// make this actually use the "code.google.com/p/go.crypto/ssh"
+	// https://godoc.org/golang.org/x/crypto/ssh/agent
+	// http://kukuruku.co/hub/golang/ssh-commands-execution-on-hundreds-of-servers-via-go
+	// http://gitlab.cslabs.clarkson.edu/meshca/golang-ssh-example/commit/556eb3c3bcb58ad457920d894a696e9266bbad36
+
 	return exec.Command("make", fmt.Sprintf("ARGS='%s'", strings.Join(cmd, " ")), "sshroot").CombinedOutput()
 }
 

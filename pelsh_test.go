@@ -10,9 +10,10 @@ import (
 func TestNewPelicanAccountShell(t *testing.T) {
 	StopAllDockers()
 	StartDockerImage("jaten/pelican04")
-	defer StopAllDockers()
+	//defer StopAllDockers()
 	pw, err := SshAsRootIntoDocker([]string{"cat", "/etc/passwd"})
 	if err != nil {
+		fmt.Printf("error: '%s', output during SshAsRootIntoDocker(): '%s'\n", err, string(pw))
 		panic(err)
 	}
 	fmt.Printf("pw seen: '%s'\n", string(pw))

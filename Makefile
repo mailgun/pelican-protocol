@@ -44,7 +44,9 @@ docker-get-ip:
 	docker inspect -f "{{ .NetworkSettings.IPAddress }}" $$(docker ps -l -q)
 
 sshroot:
-	docker-ssh `docker ps -l -q` ${ARGS}
+	chmod og-rwx dot.ssh/id_rsa_docker_root
+	ssh -i dot.ssh/id_rsa_docker_root root@$$(docker inspect -f "{{ .NetworkSettings.IPAddress }}" $$(docker ps -l -q)) ${ARGS}
+
 
 sshpna:
 	chmod og-rwx dot.ssh/id_rsa_pelican_newacct_wellknown
