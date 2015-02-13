@@ -1,6 +1,7 @@
 package pelican
 
 import (
+	"fmt"
 	"testing"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -8,9 +9,13 @@ import (
 
 func TestNewPelicanAccountShell(t *testing.T) {
 	StopAllDockers()
-	StartDockerImage("mailgun/pelican04")
+	StartDockerImage("jaten/pelican04")
 	defer StopAllDockers()
-	SshAsRootIntoDocker([]string{"cat", "/etc/passwd"})
+	pw, err := SshAsRootIntoDocker([]string{"cat", "/etc/passwd"})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("pw seen: '%s'\n", string(pw))
 
 	cv.Convey("When the pelsh is given a public key, ", t, func() {
 

@@ -16,15 +16,20 @@ func StartDockerImage(image string) {
 }
 
 func SshAsRootIntoDocker(cmd []string) ([]byte, error) {
-	return exec.Command("make", fmt.Sprintf("ARGS='%s'", strings.Join(cmd, " ")), "sshroot").Output()
+	return exec.Command("make", fmt.Sprintf("ARGS='%s'", strings.Join(cmd, " ")), "sshroot").CombinedOutput()
+}
+
+func TrimRightNewline(slice []byte) []byte {
+	n := len(slice)
+	if n > 0 {
+		slice = slice[:n-1]
+	}
+	return slice
 }
 
 func RunningDockerId() ([]byte, error) {
-	out, err := exec.Command("/usr/bin/docker", "ps", "-q", "-n=1", "-f", "status=running").Output()
-	n := len(out)
-	if n > 0 {
-		out = out[:n-1]
-	}
+	out, err := exec.Command("/usr/bin/docker", "ps", "-q", "-n=1", "-f", "status=running").CombinedOutput()
+	out = TrimRightNewline(out)
 	return out, err
 }
 
@@ -38,7 +43,7 @@ func StopAllDockers() {
 			return
 		}
 		fmt.Printf("StopAllDockers() is stopping '%s'\n", string(out))
-		_, err = exec.Command("/usr/bin/docker", "stop", string(out)).Output()
+		_, err = exec.Command("/usr/bin/docker", "stop", string(out)).CombinedOutput()
 		if err != nil {
 			panic(err)
 		}
