@@ -3,6 +3,9 @@ Pelicans are ferocious eaters of fish. According to wikipedia, in ancient Egypt 
 
 The pelican-protocol provides a means of devouring all phishing attempts. This is a prototype project. It provides means of doing user creation and authentication over an SSH based protocol that tunnels http/https. It aims for strong usability by lay persons, and provides for portable and easy key management. A proxy for the client side does the key management and server identity checking, acting in the role of ssh-agent and the ssh client. On the server side, a reverse proxy and a secure login shell to implement the server side of the protocol are provided.
 
+For now we skip the trouble involved in tunneling https, and only illustrate via tunneling http over ssh.
+
+We use a docker image that contains a running sshd to make it easy to setup and test.
 
 
 [1]  Hart, George (2005). The Routledge Dictionary Of Egyptian Gods And Goddesses. Routledge Dictionaries. Abingdon, United Kingdom: Routledge. p. 125. ISBN 978-0-415-34495-1. Cite 99 of http://en.wikipedia.org/wiki/Pelican.

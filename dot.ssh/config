@@ -1,0 +1,25 @@
+
+# you'll have to get the container's IP address as follows,
+# and replace 172.17.0.9 below with the one you find:
+#
+#     docker inspect -f "{{ .NetworkSettings.IPAddress }}" 1a0785328b18  
+#
+# where you replace 1a0785328b18 with your running container id (find it with 'docker ps')
+
+# docker container, as root
+Host pel1
+   Hostname 172.17.0.9
+   Port 22
+   User root
+   IdentityFile ~/.ssh/id_rsa_docker_wellknownkey
+
+   
+# docker container, as pelican_newacct (pna for short)
+Host pna
+   Hostname 172.17.0.9
+   Port 22
+   User pelican_newacct
+   IdentityFile ~/.ssh/id_rsa_pelican_newacct_wellknown
+
+
+   
