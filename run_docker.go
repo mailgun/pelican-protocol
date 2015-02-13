@@ -42,6 +42,17 @@ func StartDockerImage(image string) {
 
 func SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 
+	dockerip := getDockerIP()
+
+	fullcmd := strings.Join(cmd, " ")
+	sess, out, err := sshConnect("root", "dot.ssh/id_rsa_docker_root", dockerip, 22, fullcmd)
+	defer sess.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("running '%s' produced: '%s'\n", fullcmd, string(out))
+
 	// examples:
 	// make this actually use the "code.google.com/p/go.crypto/ssh"
 	// https://godoc.org/golang.org/x/crypto/ssh/agent
@@ -80,4 +91,17 @@ func StopAllDockers() {
 			panic(err)
 		}
 	}
+}
+
+func getDockerIP() string {
+	id, err := RunningDockerId()
+	if err != nil {
+		panic(err)
+	}
+
+	ip, err := exec.Command("docker", "inspect", "-f", "{{ .NetworkSettings.IPAddress }}", string(id)).CombinedOutput()
+	if err != nil {
+		panic(err)
+	}
+	return string(ip)
 }
