@@ -13,8 +13,6 @@ import (
 
 func (s *KnownHosts) saveJsonSnappy(fn string) error {
 
-	fn = fn + ".json.snappy"
-
 	t0 := time.Now()
 
 	by, err := json.Marshal(s)
@@ -48,8 +46,6 @@ func (s *KnownHosts) saveJsonSnappy(fn string) error {
 }
 
 func (s *KnownHosts) readJsonSnappy(fn string) error {
-
-	fn = fn + ".json.snappy"
 
 	if !FileExists(fn) {
 		return fmt.Errorf("could not open because no such file: '%s'", fn)

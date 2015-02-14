@@ -15,8 +15,6 @@ import (
 
 func (s *KnownHosts) saveGobSnappy(fn string) error {
 
-	fn = fn + ".gob.snappy"
-
 	t0 := time.Now()
 
 	gob.Register(s)
@@ -58,8 +56,6 @@ func (s *KnownHosts) saveGobSnappy(fn string) error {
 }
 
 func (s *KnownHosts) readGobSnappy(fn string) error {
-
-	fn = fn + ".gob.snappy"
 
 	f, err := unsnap.Open(fn)
 	if err != nil {

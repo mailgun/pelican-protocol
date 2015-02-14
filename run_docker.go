@@ -50,7 +50,7 @@ func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 		panic(err)
 	}
 
-	fmt.Printf("running '%s' produced: '%s'\n", fullcmd, string(out))
+	VPrintf("running '%s' produced: '%s'\n", fullcmd, string(out))
 
 	// examples:
 	// make this actually use the "code.google.com/p/go.crypto/ssh"
@@ -58,7 +58,8 @@ func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 	// http://kukuruku.co/hub/golang/ssh-commands-execution-on-hundreds-of-servers-via-go
 	// http://gitlab.cslabs.clarkson.edu/meshca/golang-ssh-example/commit/556eb3c3bcb58ad457920d894a696e9266bbad36
 
-	return exec.Command("make", fmt.Sprintf("ARGS='%s'", strings.Join(cmd, " ")), "sshroot").CombinedOutput()
+	//return exec.Command("make", fmt.Sprintf("ARGS='%s'", strings.Join(cmd, " ")), "sshroot").CombinedOutput()
+	return out, err
 }
 
 func TrimRightNewline(slice []byte) []byte {
