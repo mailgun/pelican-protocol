@@ -26,3 +26,5 @@ _testmain.go
 
 pelsh/pelsh
 keymgr/keymgr
+.secret_id_for_service
+my.known.hosts*

@@ -111,7 +111,7 @@ func GenSecretIdForService(path string) string {
 	panicOn(err)
 	defer f.Close()
 	f.WriteString(id)
-
+	fmt.Fprintf(f, "\n")
 	return id
 }
 
