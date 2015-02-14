@@ -7,7 +7,10 @@ import (
 	"crypto/sha256"
 	"encoding/gob"
 	"fmt"
+	"github.com/glycerine/ruid"
+	"github.com/mailgun/pelican-protocol"
 	"io"
+	"io/ioutil"
 	"math/big"
 	"os"
 )
@@ -81,20 +84,53 @@ func SendKeyPayload(p *KeyPayload) {
 	}
 }
 
+func FetchOrGenSecretIdForService(path string) string {
+	if FileExists(path) {
+		return FetchSecretIdForService(path)
+	} else {
+		return GenSecretIdForService(path)
+	}
+}
+
+func FetchSecretIdForService(path string) string {
+	by, err := ioutil.ReadFile(path)
+	panicOn(err)
+	return string(by)
+}
+
+func GenSecretIdForService(path string) string {
+	// generate this once and make it a unique RUID for each server's service.
+	// usernames generated depend on this, so if you change the service Id,
+	// you will change the user's account name
+	myExternalIP := pelican.GetExternalIP()
+	ruidGen := ruid.NewRuidGen(myExternalIP)
+	id := ruidGen.Ruid2()
+	fmt.Printf("SecretIdForService = '%s'\n", id)
+
+	f, err := os.Create(path)
+	panicOn(err)
+	defer f.Close()
+	f.WriteString(id)
+
+	return id
+}
+
 func main() {
 	gob.Register(KeyPayload{})
 
 	key := &KeyPayload{PublicKey: "0123456789abcdef-hello-public-key"}
 
-	hmac := Sha1HMAC([]byte(key.PublicKey), []byte{})
+	secretServerId := FetchOrGenSecretIdForService(".secret_id_for_service")
 
-	key.AcctUsername = encodeSha1AsUsername(hmac)
+	hmac := Sha1HMAC([]byte(key.PublicKey), []byte(secretServerId))
+
+	key.AcctUsername = encodeSha1HmacAsUsername(hmac)
 
 	SendKeyPayload(key)
 	fmt.Printf("\n done sending: '%#v'.\n", key)
 }
 
-func encodeSha1AsUsername(sha1 []byte) string {
+func encodeSha1HmacAsUsername(sha1 []byte) string {
 	i := new(big.Int)
 	i.SetBytes(sha1)
 	return "p" + bigIntToBase36string(i)

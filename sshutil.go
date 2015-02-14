@@ -176,14 +176,22 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 
 func loadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
 	buf, err := ioutil.ReadFile(path)
-	if err != nil {
-		panic(err)
-	}
+	panicOn(err)
+
 	privkey, err = ssh.ParsePrivateKey(buf)
-	if err != nil {
-		panic(err)
-	}
+	panicOn(err)
+
 	return privkey, err
+}
+
+func loadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
+	buf, err := ioutil.ReadFile(path)
+	panicOn(err)
+
+	pub, _, _, _, err := ssh.ParseAuthorizedKey(buf)
+	panicOn(err)
+
+	return pub, err
 }
 
 func (h *KnownHosts) sshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {
