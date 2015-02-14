@@ -40,12 +40,12 @@ func StartDockerImage(image string) {
 	fmt.Printf("StartDockerImage() done.\n")
 }
 
-func SshAsRootIntoDocker(cmd []string) ([]byte, error) {
+func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 
 	dockerip := getDockerIP()
 
 	fullcmd := strings.Join(cmd, " ")
-	out, err := sshConnect("root", "dot.ssh/id_rsa_docker_root", dockerip, 22, fullcmd)
+	out, err := h.sshConnect("root", "dot.ssh/id_rsa_docker_root", dockerip, 22, fullcmd)
 	if err != nil {
 		panic(err)
 	}
