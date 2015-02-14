@@ -2,16 +2,9 @@ package main
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/gob"
 	"fmt"
-	"github.com/glycerine/ruid"
-	"github.com/mailgun/pelican-protocol"
 	"io"
-	"io/ioutil"
-	"math/big"
 	"os"
 )
 
@@ -32,34 +25,6 @@ type KeyPayload struct {
 	// be only lowercase letters and digits. Underscores and
 	// dashes are allowed too but we don't use them.
 	AcctUsername string
-}
-
-func Sha256HMAC(message, key []byte) []byte {
-	mac := hmac.New(sha256.New, key)
-	mac.Write(message)
-	return mac.Sum(nil)
-}
-
-// CheckMAC returns true if messageMAC is a valid HMAC tag for message.
-func CheckSha256HMAC(message, messageMAC, key []byte) bool {
-	mac := hmac.New(sha256.New, key)
-	mac.Write(message)
-	expectedMAC := mac.Sum(nil)
-	return hmac.Equal(messageMAC, expectedMAC)
-}
-
-func Sha1HMAC(message, key []byte) []byte {
-	mac := hmac.New(sha1.New, key)
-	mac.Write(message)
-	return mac.Sum(nil)
-}
-
-// CheckMAC returns true if messageMAC is a valid HMAC tag for message.
-func CheckSha1HMAC(message, messageMAC, key []byte) bool {
-	mac := hmac.New(sha1.New, key)
-	mac.Write(message)
-	expectedMAC := mac.Sum(nil)
-	return hmac.Equal(messageMAC, expectedMAC)
 }
 
 func SendKeyPayload(p *KeyPayload) {
@@ -84,37 +49,6 @@ func SendKeyPayload(p *KeyPayload) {
 	}
 }
 
-func FetchOrGenSecretIdForService(path string) string {
-	if FileExists(path) {
-		return FetchSecretIdForService(path)
-	} else {
-		return GenSecretIdForService(path)
-	}
-}
-
-func FetchSecretIdForService(path string) string {
-	by, err := ioutil.ReadFile(path)
-	panicOn(err)
-	return string(by)
-}
-
-func GenSecretIdForService(path string) string {
-	// generate this once and make it a unique RUID for each server's service.
-	// usernames generated depend on this, so if you change the service Id,
-	// you will change the user's account name
-	myExternalIP := pelican.GetExternalIP()
-	ruidGen := ruid.NewRuidGen(myExternalIP)
-	id := ruidGen.Ruid2()
-	fmt.Printf("SecretIdForService = '%s'\n", id)
-
-	f, err := os.Create(path)
-	panicOn(err)
-	defer f.Close()
-	f.WriteString(id)
-	fmt.Fprintf(f, "\n")
-	return id
-}
-
 func main() {
 	gob.Register(KeyPayload{})
 
@@ -128,39 +62,4 @@ func main() {
 
 	SendKeyPayload(key)
 	fmt.Printf("\n done sending: '%#v'.\n", key)
-}
-
-func encodeSha1HmacAsUsername(sha1 []byte) string {
-	i := new(big.Int)
-	i.SetBytes(sha1)
-	return "p" + bigIntToBase36string(i)
-}
-
-var enc36 string = "0123456789abcdefghijklmnopqrstuvwxyz"
-var e36 []rune = []rune(enc36)
-
-// i must be between 0 and 35 inclusive.
-func encode36(i int64) rune {
-	return e36[i]
-}
-
-func bigIntToBase36string(val *big.Int) string {
-	const N = 31 // ceiling(log(2^160,36))
-	res := make([]rune, N)
-	left := new(big.Int)
-	quo := new(big.Int)
-	rem := new(big.Int)
-	*left = *val
-
-	div := big.NewInt(36)
-
-	for i := 0; i < N; i++ {
-		quo.QuoRem(left, div, rem)
-		*left = *quo
-		r := rem.Int64()
-		e := encode36(r)
-		res[N-1-i] = e
-	}
-
-	return string(res)
 }
