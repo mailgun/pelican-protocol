@@ -7,13 +7,18 @@ import (
 	"testing"
 )
 
+func CleanupOldKnownHosts(fn string) {
+	os.Remove(fn + defaultFileFormat())
+}
+
 func TestKnownHostsSaveAndRestoreWork(t *testing.T) {
 	StopAllDockers()
-	StartDockerImage("jaten/pelican04")
+	StartDockerImage(DockerHubTestImage)
 	defer StopAllDockers()
 
 	my_known_hosts_file := "my.known.hosts"
-	os.Remove(my_known_hosts_file + defaultFileFormat())
+	CleanupOldKnownHosts(my_known_hosts_file)
+
 	h := NewKnownHosts(my_known_hosts_file)
 	defer h.Close()
 

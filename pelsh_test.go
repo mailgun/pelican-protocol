@@ -7,12 +7,16 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 )
 
+var DockerHubTestImage string = "jaten/pelican04"
+
 func TestNewPelicanAccountShell(t *testing.T) {
 	StopAllDockers()
-	StartDockerImage("jaten/pelican04")
+	StartDockerImage(DockerHubTestImage)
 	//defer StopAllDockers()
 
-	h := NewKnownHosts("my.known.hosts")
+	my_known_hosts_file := "my.known.hosts"
+	CleanupOldKnownHosts(my_known_hosts_file)
+	h := NewKnownHosts(my_known_hosts_file)
 	defer h.Close()
 
 	pw, err := h.SshAsRootIntoDocker([]string{"cat", "/etc/passwd"})

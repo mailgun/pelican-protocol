@@ -8,7 +8,7 @@ import (
 
 func TestPelicanAccountShellShoundEstablishNewKey(t *testing.T) {
 	StopAllDockers()
-	StartDockerImage("jaten/pelican04")
+	StartDockerImage(DockerHubTestImage)
 	defer StopAllDockers()
 	cv.Convey("Given we have made a pelican account and installed the pelican_newacct shell in /etc/passwd under the pelican account, and added the pelican public key to the ~pelican/.ssh/authorized_keys", t, func() {
 

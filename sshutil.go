@@ -204,6 +204,8 @@ func (h *KnownHosts) sshConnect(username string, keypath string, host string, po
 		}
 
 		if err != nil {
+			// this is strict checking of hosts here, any non-nil error
+			// will fail the ssh handshake.
 			return err
 		}
 
