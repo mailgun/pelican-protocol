@@ -15,26 +15,28 @@ type KnownHosts struct {
 	curHost   *ServerPubKey
 	curStatus HostState
 
-	// PersistFormat doubles as the file suffix as well as
-	// the format indicator
-	// either ".gob.snappy" or ".json.snappy"
-	PersistFormat string
-
 	// FilepathPrefix doesn't have the .json.snappy suffix on it.
 	FilepathPrefix string
+
+	// PersistFormat doubles as the file suffix as well as
+	// the format indicator
+	PersistFormat string
 }
 
 type ServerPubKey struct {
 	Hostname     string
-	Remote       net.Addr
-	key          ssh.PublicKey
 	HumanKey     string // serialized and readable version of Key, the key for Hosts map in KnownHosts.
 	ServerBanned bool
 	//OurAcctKeyPair ssh.Signer
+
+	remote net.Addr      // unmarshalled form of Hostname
+	key    ssh.PublicKey // unmarshalled form of HumanKey
 }
 
 func defaultFileFormat() string {
+	// either ".gob.snappy" or ".json.snappy"
 	return ".json.snappy"
+	//return ".gob.snappy"
 }
 
 // filepathPrefix does not include the PersistFormat suffix
@@ -98,8 +100,17 @@ func KnownHostsEqual(a, b *KnownHosts) (bool, error) {
 }
 
 func (h *KnownHosts) Sync() {
-	//h.saveGobSnappy(fn)
-	h.saveJsonSnappy(h.FilepathPrefix)
+	fn := h.FilepathPrefix + h.PersistFormat
+	switch h.PersistFormat {
+	case ".json.snappy":
+		err := h.saveJsonSnappy(fn)
+		panicOn(err)
+	case ".gob.snappy":
+		err := h.saveGobSnappy(fn)
+		panicOn(err)
+	default:
+		panic(fmt.Sprintf("unknown persistence format", h.PersistFormat))
+	}
 }
 
 func (h *KnownHosts) Close() {
@@ -142,8 +153,8 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 		if record.Hostname != hostname {
 			return KnownRecordMismatch, fmt.Errorf("hostname mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.Hostname, hostname), record
 		}
-		if !reflect.DeepEqual(record.Remote, remote) {
-			return KnownRecordMismatch, fmt.Errorf("remote address mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.Remote, remote), record
+		if !reflect.DeepEqual(record.remote, remote) {
+			return KnownRecordMismatch, fmt.Errorf("remote address mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.remote, remote), record
 		}
 		return KnownOK, nil, record
 	}
@@ -151,7 +162,7 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 	if addIfNotKnown {
 		record = &ServerPubKey{
 			Hostname: hostname,
-			Remote:   remote,
+			remote:   remote,
 			//Key:      key,
 			HumanKey: strPubBytes,
 		}

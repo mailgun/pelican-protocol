@@ -1,5 +1,12 @@
 package pelican
 
+import (
+	"fmt"
+	"time"
+)
+
+var Verbose bool
+
 // get timestamp for logging purposes
 func ts() string {
 	return time.Now().Format("2006-01-02 15:04:05.999 -0700 MST")
