@@ -8,7 +8,7 @@ import (
 	"net"
 	"reflect"
 
-	"code.google.com/p/go.crypto/ssh"
+	"golang.org/x/crypto/ssh"
 )
 
 func agentExample() {

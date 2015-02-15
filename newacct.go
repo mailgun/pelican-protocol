@@ -1,5 +1,12 @@
 package pelican
 
+import (
+	"fmt"
+	"golang.org/x/crypto/ssh"
+	"net"
+	"sync"
+)
+
 // This key-pair is the canonical key-pair for establishing
 // a new account, thus it is okay to distribute this
 // private key. Everybody will use it to create a
@@ -67,3 +74,289 @@ ltFBezQUvD2YxwA3LF9dD13vvihp/AP3o45yp6o9NOWTj4TQtvt6Fvbli0h7kCju
 `
 
 var newAcctPublicKey string = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDTRNQMhXy8fsP7zM5i+hsrCvtkmJ7X+EZLmemxI0WlVlpJ4m2sdtBiM0jVxA/MZIk+KeLEp6hQvKjbfHxtWm+TObN6iu/DMYCHv394zJHbaFVziHjnV7Q31h/4kUAzYq0RXeumvs7LBwvgoX+gEhjjK8T4rv5z3hpwOZuaIKJFwnBX0nGNinad7uZ0pF1B1KU0OSBAZvYiflWIsA7Hzfq1oDFsV4IHqKlLotXchnHhLhmP85crCo9OnGyZr4tUDCM2+smWD3Y6vpXYpuznCeFoA8Bew+iu0n1XS1qzsUX9VWMh8DhqtcfS2SLV1B1VfGmMuSlZ70DmVXg+6fxRemP9fqIwImbfWh0CXmk5plifoyR4IVC9FN/sVdrfGBdr+eeZXFAwa3nPPsTnbJYsKe1qMzZyaF+/usMsW8BViocm0zCAhdZQeuJdhPDe/ZUidi8DM/fvTkdmi84Faf2oRLccbwHdI1vFEmLWblKf4jknA2hbQ4IuQm7L6RTL39beAPGV0w2LIVdMwCL5ZdsyY+T4k1mbzSPdNx3tgxkZJsSVQnQ7sEtQeuo+GOcEPapQlSSe6IytRby85LwAzIWv/9xQXrntkCn5wKoKmUlMACJtFgGFthmHipaFknqiCnhm+5cxDF8YLdjxQ1zp7NGfGqdwJRwqrYZrIcQV70RumRxFYQ==`
+
+func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) error {
+
+	fmt.Printf("\n ========== Begin SshMakeNewAcct().\n")
+
+	// the callback just after key-exchange to validate server is here
+	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		pubBytes := ssh.MarshalAuthorizedKey(key)
+
+		hostStatus, err, spubkey := h.HostAlreadyKnown(hostname, remote, key, pubBytes, AddIfNotKnown)
+		fmt.Printf("in hostKeyCallback(), hostStatus: '%s', hostname='%s', remote='%s', key.Type='%s'  key.Marshal='%s'\n", hostStatus, hostname, remote, key.Type(), pubBytes)
+
+		h.curStatus = hostStatus
+		h.curHost = spubkey
+
+		if hostStatus == Banned {
+			fmt.Printf("detected Banned host.\n")
+			return fmt.Errorf("banned server")
+		}
+
+		// super lenient for the moment.
+		fmt.Printf("debug/early dev: returning nil from hostKeyCallback()\n")
+		err = nil
+		return err
+		/*
+
+			if err != nil {
+				// this is strict checking of hosts here, any non-nil error
+				// will fail the ssh handshake.
+				return err
+			}
+
+			return nil
+		*/
+	}
+	// end hostKeyCallback closure definition. Has to be a closure to access h.
+
+	privkeyString := GetNewAcctPrivateKey()
+	privkey, err := ssh.ParsePrivateKey([]byte(privkeyString))
+	panicOn(err)
+
+	cfg := &ssh.ClientConfig{
+		User: "newacct",
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(privkey),
+		},
+		// HostKeyCallback, if not nil, is called during the cryptographic
+		// handshake to validate the server's host key. A nil HostKeyCallback
+		// implies that all host keys are accepted => not good for MITM protection!
+		HostKeyCallback: hostKeyCallback,
+	}
+	hostport := fmt.Sprintf("%s:%d", host, port)
+
+	fmt.Printf("Just before Dial.\n")
+
+	// instead of ssh.Dial, we net.Dial + NewClientConn so we can shutdown reverse forwards.
+
+	addr := hostport
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		panic(fmt.Sprintf("SshMakeNewAcct() failed at net.Dial to '%s': '%s' ", addr, err.Error()))
+	}
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		panic(fmt.Sprintf("SshMakeNewAcct() failed at ssh.NewClientConn to '%s': '%s' ", addr, err.Error()))
+	}
+
+	sshClientConn := NewMyClient(c, chans, reqs)
+
+	fmt.Printf("Dial completed without error. sshClientConn is '%#v'\n", sshClientConn)
+
+	channel, reqs, err := sshClientConn.Conn.OpenChannel("direct-tcpip", nil)
+	panicOn(err)
+
+	fmt.Printf("\nOpenChannel() completed without error. channel: '%#v'\n", channel)
+
+	go ssh.DiscardRequests(reqs)
+
+	select {}
+
+	return nil
+}
+
+func NewMyClient(c ssh.Conn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request) *MyClient {
+	conn := &MyClient{
+		Conn:            c,
+		channelHandlers: make(map[string]chan ssh.NewChannel, 1),
+	}
+	go conn.handleGlobalRequests(reqs)
+	go conn.handleChannelOpens(chans)
+	go func() {
+		conn.Wait()
+		conn.forwards.closeAll()
+	}()
+	go conn.forwards.handleChannels(conn.HandleChannelOpen("forwarded-tcpip"))
+	return conn
+}
+
+// Client implements a traditional SSH client that supports shells,
+// subprocesses, port forwarding and tunneled dialing.
+//
+// MyClient restricts and eliminates alot of those features.
+type MyClient struct {
+	ssh.Conn
+
+	forwards        forwardList // forwarded tcpip connections from the remote side
+	mu              sync.Mutex
+	channelHandlers map[string]chan ssh.NewChannel
+}
+
+func (c *MyClient) handleGlobalRequests(incoming <-chan *ssh.Request) {
+	for r := range incoming {
+		// This handles keepalive messages and matches
+		// the behaviour of OpenSSH.
+		r.Reply(false, nil)
+	}
+}
+
+// handleChannelOpens channel open messages from the remote side.
+func (c *MyClient) handleChannelOpens(in <-chan ssh.NewChannel) {
+	for ch := range in {
+		c.mu.Lock()
+		handler := c.channelHandlers[ch.ChannelType()]
+		c.mu.Unlock()
+		if handler != nil {
+			handler <- ch
+		} else {
+			ch.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %v", ch.ChannelType()))
+		}
+	}
+	c.mu.Lock()
+	for _, ch := range c.channelHandlers {
+		close(ch)
+	}
+	c.channelHandlers = nil
+	c.mu.Unlock()
+}
+
+//// from github.com/golang/crypto/ssh/tcpip.go
+// sadly, forwardList is not publicly available, so must be duplicated here.
+
+// forwardList stores a mapping between remote
+// forward requests and the tcpListeners.
+type forwardList struct {
+	sync.Mutex
+	entries []forwardEntry
+}
+
+// forwardEntry represents an established mapping of a laddr on a
+// remote ssh server to a channel connected to a tcpListener.
+type forwardEntry struct {
+	laddr net.TCPAddr
+	c     chan forward
+}
+
+// forward represents an incoming forwarded tcpip connection. The
+// arguments to add/remove/lookup should be address as specified in
+// the original forward-request.
+type forward struct {
+	newCh ssh.NewChannel // the ssh client channel underlying this forward
+	raddr *net.TCPAddr   // the raddr of the incoming connection
+}
+
+func (l *forwardList) add(addr net.TCPAddr) chan forward {
+	l.Lock()
+	defer l.Unlock()
+	f := forwardEntry{
+		addr,
+		make(chan forward, 1),
+	}
+	l.entries = append(l.entries, f)
+	return f.c
+}
+
+// See RFC 4254, section 7.2
+type forwardedTCPPayload struct {
+	Addr       string
+	Port       uint32
+	OriginAddr string
+	OriginPort uint32
+}
+
+// parseTCPAddr parses the originating address from the remote into a *net.TCPAddr.
+func parseTCPAddr(addr string, port uint32) (*net.TCPAddr, error) {
+	if port == 0 || port > 65535 {
+		return nil, fmt.Errorf("ssh: port number out of range: %d", port)
+	}
+	ip := net.ParseIP(string(addr))
+	if ip == nil {
+		return nil, fmt.Errorf("ssh: cannot parse IP address %q", addr)
+	}
+	return &net.TCPAddr{IP: ip, Port: int(port)}, nil
+}
+
+func (l *forwardList) handleChannels(in <-chan ssh.NewChannel) {
+	for ch := range in {
+		var payload forwardedTCPPayload
+		if err := ssh.Unmarshal(ch.ExtraData(), &payload); err != nil {
+			ch.Reject(ssh.ConnectionFailed, "could not parse forwarded-tcpip payload: "+err.Error())
+			continue
+		}
+
+		// RFC 4254 section 7.2 specifies that incoming
+		// addresses should list the address, in string
+		// format. It is implied that this should be an IP
+		// address, as it would be impossible to connect to it
+		// otherwise.
+		laddr, err := parseTCPAddr(payload.Addr, payload.Port)
+		if err != nil {
+			ch.Reject(ssh.ConnectionFailed, err.Error())
+			continue
+		}
+		raddr, err := parseTCPAddr(payload.OriginAddr, payload.OriginPort)
+		if err != nil {
+			ch.Reject(ssh.ConnectionFailed, err.Error())
+			continue
+		}
+
+		if ok := l.forward(*laddr, *raddr, ch); !ok {
+			// Section 7.2, implementations MUST reject spurious incoming
+			// connections.
+			ch.Reject(ssh.Prohibited, "no forward for address")
+			continue
+		}
+	}
+}
+
+// remove removes the forward entry, and the channel feeding its
+// listener.
+func (l *forwardList) remove(addr net.TCPAddr) {
+	l.Lock()
+	defer l.Unlock()
+	for i, f := range l.entries {
+		if addr.IP.Equal(f.laddr.IP) && addr.Port == f.laddr.Port {
+			l.entries = append(l.entries[:i], l.entries[i+1:]...)
+			close(f.c)
+			return
+		}
+	}
+}
+
+// closeAll closes and clears all forwards.
+func (l *forwardList) closeAll() {
+	l.Lock()
+	defer l.Unlock()
+	for _, f := range l.entries {
+		close(f.c)
+	}
+	l.entries = nil
+}
+
+func (l *forwardList) forward(laddr, raddr net.TCPAddr, ch ssh.NewChannel) bool {
+	l.Lock()
+	defer l.Unlock()
+	for _, f := range l.entries {
+		if laddr.IP.Equal(f.laddr.IP) && laddr.Port == f.laddr.Port {
+			f.c <- forward{ch, &raddr}
+			return true
+		}
+	}
+	return false
+}
+
+// HandleChannelOpen returns a channel on which NewChannel requests
+// for the given type are sent. If the type already is being handled,
+// nil is returned. The channel is closed when the connection is closed.
+func (c *MyClient) HandleChannelOpen(channelType string) <-chan ssh.NewChannel {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.channelHandlers == nil {
+		// The SSH channel has been closed.
+		c := make(chan ssh.NewChannel)
+		close(c)
+		return c
+	}
+
+	ch := c.channelHandlers[channelType]
+	if ch != nil {
+		return nil
+	}
+
+	ch = make(chan ssh.NewChannel, 16)
+	c.channelHandlers[channelType] = ch
+	return ch
+}

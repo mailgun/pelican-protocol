@@ -1,7 +1,6 @@
 package pelican
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
@@ -11,7 +10,8 @@ import (
 
 	"crypto/sha256"
 
-	"code.google.com/p/go.crypto/ssh"
+	//"code.google.com/p/go.crypto/ssh"
+	"golang.org/x/crypto/ssh"
 )
 
 type KnownHosts struct {
@@ -257,30 +257,21 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		HostKeyCallback: hostKeyCallback,
 	}
 	hostport := fmt.Sprintf("%s:%d", host, port)
-	cli, err := ssh.Dial("tcp", hostport, cfg)
+	sshClientConn, err := ssh.Dial("tcp", hostport, cfg)
 	if err != nil {
 		panic(fmt.Sprintf("sshConnect() failed at dial to '%s': '%s' ", hostport, err.Error()))
 	}
 
-	// Each ClientConn can support multiple interactive sessions,
-	// represented by a Session.
-	sess, err := cli.NewSession()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to create session to '%s': err = '%s'", hostport, err.Error()))
-	}
-	// you can only do one command on a session, so might as well close.
-	defer sess.Close()
+	channel, reqs, err := sshClientConn.Conn.OpenChannel("forwarded-tcpip", nil)
+	panicOn(err)
 
-	// Once a Session is created, you can execute a single command on
-	// the remote side using the Run method.
-	var b bytes.Buffer
-	sess.Stdout = &b
-	if err := sess.Run(command); err != nil {
-		panic(fmt.Sprintf("sshConnect() failed to run login to '%s', err: '%s', out: '%s'", hostport, err.Error(), b.String()))
-	}
-	//fmt.Println(b.String())
+	fmt.Printf("OpenChannel() completed without error. channel: '%#v'\n", channel)
 
-	return b.Bytes(), nil
+	go ssh.DiscardRequests(reqs)
+
+	////////////////////////////////
+
+	return []byte{}, nil
 }
 
 // Fingerprint performs a SHA256 BASE64 fingerprint of the PublicKey, similar to OpenSSH.
@@ -288,68 +279,4 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 func Fingerprint(k ssh.PublicKey) string {
 	hash := sha256.Sum256(k.Marshal())
 	return base64.StdEncoding.EncodeToString(hash[:])
-}
-
-func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) error {
-
-	fmt.Printf("\n ========== Begin SshMakeNewAcct().\n")
-
-	// the callback just after key-exchange to validate server is here
-	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		pubBytes := ssh.MarshalAuthorizedKey(key)
-
-		hostStatus, err, spubkey := h.HostAlreadyKnown(hostname, remote, key, pubBytes, AddIfNotKnown)
-		fmt.Printf("in hostKeyCallback(), hostStatus: '%s', hostname='%s', remote='%s', key.Type='%s'  key.Marshal='%s'\n", hostStatus, hostname, remote, key.Type(), pubBytes)
-
-		h.curStatus = hostStatus
-		h.curHost = spubkey
-
-		if hostStatus == Banned {
-			fmt.Printf("detected Banned host.\n")
-			return fmt.Errorf("banned server")
-		}
-
-		// super lenient for the moment.
-		fmt.Printf("debug/early dev: returning nil from hostKeyCallback()\n")
-		err = nil
-		return err
-		/*
-
-			if err != nil {
-				// this is strict checking of hosts here, any non-nil error
-				// will fail the ssh handshake.
-				return err
-			}
-
-			return nil
-		*/
-	}
-	// end hostKeyCallback closure definition. Has to be a closure to access h.
-
-	privkeyString := GetNewAcctPrivateKey()
-	privkey, err := ssh.ParsePrivateKey([]byte(privkeyString))
-	panicOn(err)
-
-	cfg := &ssh.ClientConfig{
-		User: "newacct",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(privkey),
-		},
-		// HostKeyCallback, if not nil, is called during the cryptographic
-		// handshake to validate the server's host key. A nil HostKeyCallback
-		// implies that all host keys are accepted.
-		HostKeyCallback: hostKeyCallback,
-	}
-	hostport := fmt.Sprintf("%s:%d", host, port)
-
-	fmt.Printf("Just before Dial.\n")
-
-	_, err = ssh.Dial("tcp", hostport, cfg)
-	if err != nil {
-		panic(fmt.Sprintf("sshConnect() failed at dial to '%s': '%s' ", hostport, err.Error()))
-	}
-
-	fmt.Printf("Dial completed without error.\n")
-
-	return nil
 }

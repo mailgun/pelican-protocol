@@ -101,16 +101,18 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 }
 
 func main() {
-
+	s := NewPelicanServer()
+	s.Start()
 }
 
-type PelicanSrv struct {
+type PelicanServer struct {
 	Users *Users
+	Cfg   *ssh.ServerConfig
 }
 
-func NewPelicanServer() *PelicanSrv {
+func NewPelicanServer() *PelicanServer {
 
-	s := &PelicanSrv{
+	s := &PelicanServer{
 		Users: NewUsers(),
 	}
 
@@ -136,6 +138,13 @@ func NewPelicanServer() *PelicanSrv {
 	err := GetOrGenServerKey("./host-key-id-rsa", config)
 	panicOn(err)
 
+	s.Cfg = config
+
+	return s
+}
+
+func (s *PelicanServer) Start() {
+
 	// Once a ServerConfig has been configured, connections can be accepted.
 	listener, err := net.Listen("tcp", "0.0.0.0:2200")
 	if err != nil {
@@ -151,7 +160,7 @@ func NewPelicanServer() *PelicanSrv {
 			continue
 		}
 		// Before use, a handshake must be performed on the incoming net.Conn.
-		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, config)
+		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, s.Cfg)
 		if err != nil {
 			log.Printf("Failed to handshake (%s)", err)
 			continue
@@ -179,11 +188,8 @@ func handleChannel(newChannel ssh.NewChannel) {
 
 	fmt.Printf("\n in handleChannle() with channel type = '%s'\n", newChannel.ChannelType())
 
-	// Since we're handling a shell, we expect a
-	// channel type of "session". The also describes
-	// "x11", "direct-tcpip" and "forwarded-tcpip"
-	// channel types.
-	if t := newChannel.ChannelType(); t != "forwarded-tcpip" && t != "direct-tcpip" {
+	// "direct-tcpip" and "forwarded-tcpip" channel types may be of interest here.
+	if t := newChannel.ChannelType(); t != "direct-tcpip" {
 		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %s", t))
 		return
 	}
@@ -196,7 +202,7 @@ func handleChannel(newChannel ssh.NewChannel) {
 		return
 	}
 
-	fmt.Printf("connection = '%#v'  requests = '%#v'\n", connection, requests)
+	fmt.Printf("\n sshd: Accept happened: connection = '%#v'\n  requests = '%#v'\n", connection, requests)
 
 	// Sessions have out-of-band requests such as "shell", "pty-req" and "env"
 	// go ssh.DiscardRequests(requests) // or:
@@ -220,7 +226,10 @@ func chomp(b []byte) []byte {
 }
 
 func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
+	fmt.Printf("\n in processRequests with conn = '%#v'\n", conn)
+
 	for req := range reqs {
+		fmt.Printf("\n in processRequests(), req.Type = '%#v'\n", req.Type)
 		if req.Type != "tcpip-forward" {
 			// accept only tcpip-forward requests
 			if req.WantReply {
@@ -228,77 +237,28 @@ func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
 			}
 			continue
 		}
-		type channelForwardMsg struct {
-			Laddr string
-			Lport uint32
-		}
-		m := &channelForwardMsg{}
-		ssh.Unmarshal(req.Payload, m)
-		privateBytes, err := ioutil.ReadFile(appConfig.RemotePrivateKeyPath)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		signer, err := ssh.ParsePrivateKey(privateBytes)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		config := &ssh.ClientConfig{
-			User: appConfig.RemoteSSHUser,
-			Auth: []ssh.AuthMethod{
-				ssh.PublicKeys(signer),
-			},
-		}
-		sshClientConn, err := ssh.Dial("tcp", appConfig.RemoteSSHAddr, config)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		type channelOpenForwardMsg struct {
-			raddr string
-			rport uint32
-			laddr string
-			lport uint32
-		}
-		fm := &channelOpenForwardMsg{
-			raddr: "localhost",
-			rport: m.Lport,
-			laddr: "localhost",
-			lport: m.Lport,
-		}
-		channel, reqs, err := conn.Conn.OpenChannel("forwarded-tcpip", ssh.Marshal(fm))
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		go ssh.DiscardRequests(reqs)
-		portListener, err := sshClientConn.Listen("tcp", appConfig.RemoteForwardAddress)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		go func() {
-			for {
-				sshConn, err := portListener.Accept()
+
+		/*
+			// Copy localConn.Reader to sshConn.Writer
+			go func(sshConn net.Conn) {
+				_, err := io.Copy(sshConn, channel)
 				if err != nil {
-					log.Fatal(err.Error())
+					log.Println("io.Copy failed: %v", err)
+					sshConn.Close()
+					return
 				}
-				// Copy localConn.Reader to sshConn.Writer
-				go func(sshConn net.Conn) {
-					_, err := io.Copy(sshConn, channel)
-					if err != nil {
-						log.Println("io.Copy failed: %v", err)
-						sshConn.Close()
-						return
-					}
-				}(sshConn)
-				// Copy sshConn.Reader to localConn.Writer
-				go func(sshConn net.Conn) {
-					_, err := io.Copy(channel, sshConn)
-					if err != nil {
-						log.Println("io.Copy failed: %v", err)
-						sshConn.Close()
-						return
-					}
-				}(sshConn)
-			}
-		}()
+			}(sshConn)
+			// Copy sshConn.Reader to localConn.Writer
+			go func(sshConn net.Conn) {
+				_, err := io.Copy(channel, sshConn)
+				if err != nil {
+					log.Println("io.Copy failed: %v", err)
+					sshConn.Close()
+					return
+				}
+			}(sshConn)
+		*/
+
 		req.Reply(true, nil)
 	}
 }
