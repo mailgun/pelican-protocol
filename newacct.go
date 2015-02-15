@@ -116,6 +116,7 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 	privkey, err := ssh.ParsePrivateKey([]byte(privkeyString))
 	panicOn(err)
 
+	externalIp := GetExternalIP()
 	cfg := &ssh.ClientConfig{
 		User: "newacct",
 		Auth: []ssh.AuthMethod{
@@ -150,7 +151,7 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 	msg := channelOpenDirectMsg{
 		raddr: host,
 		rport: uint32(80), // or 443? todo: enforce 80 or 443 this on the server end too by only accepting those numbers.
-		laddr: "0.0.0.0",
+		laddr: externalIp,
 		lport: uint32(0),
 	}
 	channel, reqs, err := c.OpenChannel("direct-tcpip", ssh.Marshal(&msg))
