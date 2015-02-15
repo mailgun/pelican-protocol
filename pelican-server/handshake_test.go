@@ -20,7 +20,7 @@ func TestSshHandshake(t *testing.T) {
 	sshcli, err := NewSshClient("localhost", 2022)
 	panicOn(err)
 
-	cv.Convey("our keymgr should accept SSH handshake from ssh clients", t, func() {
+	cv.Convey("our pelican-server should accept SSH handshake from ssh clients", t, func() {
 		err := sshcli.Handshake()
 		cv.So(err, cv.ShouldEqual, nil)
 	})

@@ -2,8 +2,9 @@
 .PHONY: all test clean
 
 all:
+	go install
 	cd keymgr; go build
-	cd pelsh; go build
+	cd pelican-server; go build
 
 
 debug:
