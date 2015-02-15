@@ -174,7 +174,7 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 	return Unknown, nil, record
 }
 
-func loadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
+func LoadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
 	buf, err := ioutil.ReadFile(path)
 	panicOn(err)
 
@@ -221,7 +221,7 @@ func (h *KnownHosts) sshConnect(username string, keypath string, host string, po
 	}
 	// end hostKeyCallback closure definition. Has to be a closure to access h.
 
-	privkey, err := loadRSAPrivateKey(keypath)
+	privkey, err := LoadRSAPrivateKey(keypath)
 	if err != nil {
 		panic(err)
 	}

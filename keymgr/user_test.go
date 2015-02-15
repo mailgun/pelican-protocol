@@ -38,7 +38,7 @@ func TestSha1ToUsername(t *testing.T) {
 			shaAllBitsSet[i] = 0xff
 		}
 		// should be 2^160 -1, so the 'g' at the end becomes an 'f'
-		cv.So(encodeSha1AsUsername(shaAllBitsSet), cv.ShouldEqual, "ptwj4yidkw7a8pn4g709kzmfoaol3x8f")
+		cv.So(encodeSha1HmacAsUsername(shaAllBitsSet), cv.ShouldEqual, "ptwj4yidkw7a8pn4g709kzmfoaol3x8f")
 	})
 
 }
