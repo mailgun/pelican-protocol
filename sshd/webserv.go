@@ -17,6 +17,19 @@ import (
 
 // a simple web server that serves a static page, for testing of forwards.
 
+// =================
+
+func mainExample() {
+	fmt.Printf("webserv main running.\n")
+	w := NewWebServer("127.0.0.1:7708", nil)
+	w.Start()
+	select {}
+	// ...
+	w.Stop()
+}
+
+// =============
+
 type WebServer struct {
 	Addr        string
 	ServerReady chan bool      // closed once server is listening on Addr
@@ -117,12 +130,14 @@ func NewWebServer(addr string, cfg *WebConfig) *WebServer {
 	if cfg != nil {
 		s.cfg = *cfg
 	}
-	browserCacheSeconds := 0
 
 	FrontHandler := func(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
-		w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d, must-revalidate", browserCacheSeconds))
+		//browserCacheSeconds := 0
+		//w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d, must-revalidate", browserCacheSeconds))
+		// or just simply better for development:
+		w.Header().Set("Cache-Control", "no-cache")
 
 		fmt.Fprintf(w, "<html>")
 		title := `cutlass`
@@ -172,15 +187,6 @@ func (s *WebServer) Start() *WebServer {
 }
 
 // =====
-
-func mainExample() {
-	fmt.Printf("staticweb main running.\n")
-	w := NewWebServer("127.0.0.1:7708", nil)
-	w.Start()
-	select {}
-	// ...
-	w.Stop()
-}
 
 type KeepDebug struct{}
 
