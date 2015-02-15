@@ -5,6 +5,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"net"
 	"sync"
+	"time"
 )
 
 // This key-pair is the canonical key-pair for establishing
@@ -146,20 +147,48 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 
 	fmt.Printf("Dial completed without error. sshClientConn is '%#v'\n", sshClientConn)
 
-	channel, reqs, err := sshClientConn.Conn.OpenChannel("direct-tcpip", nil)
+	msg := channelOpenDirectMsg{
+		raddr: host,
+		rport: uint32(80), // or 443? todo: enforce 80 or 443 this on the server end too by only accepting those numbers.
+		laddr: "0.0.0.0",
+		lport: uint32(0),
+	}
+	channel, reqs, err := c.OpenChannel("direct-tcpip", ssh.Marshal(&msg))
 	panicOn(err)
+	go ssh.DiscardRequests(reqs)
+
+	// read replies
+	go func() {
+		by := make([]byte, 100)
+		for {
+			n, err := channel.Read(by)
+			if err != nil {
+				if err.Error() == "EOF" {
+					fmt.Printf("client sees EOF on channel, closing out.")
+					channel.Close()
+					return
+				}
+				fmt.Printf("error in client Read-ing of direct tcp: '%s'", err)
+			} else {
+				fmt.Printf("\n client reads on direct-tcpip channel, %d bytes: '%s'\n", n, string(by))
+			}
+		}
+	}()
 
 	fmt.Printf("\nOpenChannel() completed without error. channel: '%#v'\n", channel)
 
-	go ssh.DiscardRequests(reqs)
+	for i := 0; i < 10; i++ {
+		channel.Write([]byte(fmt.Sprintf("hello from client-side newacct.go msg %d", i)))
+		time.Sleep(2 * time.Second)
+	}
 
 	select {}
 
 	return nil
 }
 
-func NewMyClient(c ssh.Conn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request) *MyClient {
-	conn := &MyClient{
+func NewMyClient(c ssh.Conn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request) *myClient {
+	conn := &myClient{
 		Conn:            c,
 		channelHandlers: make(map[string]chan ssh.NewChannel, 1),
 	}
@@ -169,15 +198,15 @@ func NewMyClient(c ssh.Conn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Reque
 		conn.Wait()
 		conn.forwards.closeAll()
 	}()
-	go conn.forwards.handleChannels(conn.HandleChannelOpen("forwarded-tcpip"))
+	go conn.forwards.handleChannels(conn.HandleChannelOpen("direct-tcpip"))
 	return conn
 }
 
 // Client implements a traditional SSH client that supports shells,
 // subprocesses, port forwarding and tunneled dialing.
 //
-// MyClient restricts and eliminates alot of those features.
-type MyClient struct {
+// myClient restricts and eliminates alot of those features from ssh.Client.
+type myClient struct {
 	ssh.Conn
 
 	forwards        forwardList // forwarded tcpip connections from the remote side
@@ -185,7 +214,7 @@ type MyClient struct {
 	channelHandlers map[string]chan ssh.NewChannel
 }
 
-func (c *MyClient) handleGlobalRequests(incoming <-chan *ssh.Request) {
+func (c *myClient) handleGlobalRequests(incoming <-chan *ssh.Request) {
 	for r := range incoming {
 		// This handles keepalive messages and matches
 		// the behaviour of OpenSSH.
@@ -194,7 +223,7 @@ func (c *MyClient) handleGlobalRequests(incoming <-chan *ssh.Request) {
 }
 
 // handleChannelOpens channel open messages from the remote side.
-func (c *MyClient) handleChannelOpens(in <-chan ssh.NewChannel) {
+func (c *myClient) handleChannelOpens(in <-chan ssh.NewChannel) {
 	for ch := range in {
 		c.mu.Lock()
 		handler := c.channelHandlers[ch.ChannelType()]
@@ -257,48 +286,11 @@ type forwardedTCPPayload struct {
 	OriginPort uint32
 }
 
-// parseTCPAddr parses the originating address from the remote into a *net.TCPAddr.
-func parseTCPAddr(addr string, port uint32) (*net.TCPAddr, error) {
-	if port == 0 || port > 65535 {
-		return nil, fmt.Errorf("ssh: port number out of range: %d", port)
-	}
-	ip := net.ParseIP(string(addr))
-	if ip == nil {
-		return nil, fmt.Errorf("ssh: cannot parse IP address %q", addr)
-	}
-	return &net.TCPAddr{IP: ip, Port: int(port)}, nil
-}
-
+// this version, for myClient, rejects all forward requests
+// from the server for security purposes.
 func (l *forwardList) handleChannels(in <-chan ssh.NewChannel) {
 	for ch := range in {
-		var payload forwardedTCPPayload
-		if err := ssh.Unmarshal(ch.ExtraData(), &payload); err != nil {
-			ch.Reject(ssh.ConnectionFailed, "could not parse forwarded-tcpip payload: "+err.Error())
-			continue
-		}
-
-		// RFC 4254 section 7.2 specifies that incoming
-		// addresses should list the address, in string
-		// format. It is implied that this should be an IP
-		// address, as it would be impossible to connect to it
-		// otherwise.
-		laddr, err := parseTCPAddr(payload.Addr, payload.Port)
-		if err != nil {
-			ch.Reject(ssh.ConnectionFailed, err.Error())
-			continue
-		}
-		raddr, err := parseTCPAddr(payload.OriginAddr, payload.OriginPort)
-		if err != nil {
-			ch.Reject(ssh.ConnectionFailed, err.Error())
-			continue
-		}
-
-		if ok := l.forward(*laddr, *raddr, ch); !ok {
-			// Section 7.2, implementations MUST reject spurious incoming
-			// connections.
-			ch.Reject(ssh.Prohibited, "no forward for address")
-			continue
-		}
+		ch.Reject(ssh.Prohibited, "no forward for address")
 	}
 }
 
@@ -341,7 +333,7 @@ func (l *forwardList) forward(laddr, raddr net.TCPAddr, ch ssh.NewChannel) bool 
 // HandleChannelOpen returns a channel on which NewChannel requests
 // for the given type are sent. If the type already is being handled,
 // nil is returned. The channel is closed when the connection is closed.
-func (c *MyClient) HandleChannelOpen(channelType string) <-chan ssh.NewChannel {
+func (c *myClient) HandleChannelOpen(channelType string) <-chan ssh.NewChannel {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.channelHandlers == nil {
@@ -359,4 +351,26 @@ func (c *MyClient) HandleChannelOpen(channelType string) <-chan ssh.NewChannel {
 	ch = make(chan ssh.NewChannel, 16)
 	c.channelHandlers[channelType] = ch
 	return ch
+}
+
+// direct from ~/go/src/github.com/golang/crypto/ssh/tcpip.go
+
+// RFC 4254 7.2
+type channelOpenDirectMsg struct {
+	raddr string
+	rport uint32
+	laddr string
+	lport uint32
+}
+
+func (c *myClient) dial(laddr string, lport int, raddr string, rport int) (ssh.Channel, error) {
+	msg := channelOpenDirectMsg{
+		raddr: raddr,
+		rport: uint32(rport),
+		laddr: laddr,
+		lport: uint32(lport),
+	}
+	ch, in, err := c.OpenChannel("direct-tcpip", ssh.Marshal(&msg))
+	go ssh.DiscardRequests(in)
+	return ch, err
 }

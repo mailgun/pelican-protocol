@@ -8,6 +8,16 @@ import (
 
 var validIPv4addr = regexp.MustCompile(`^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$`)
 
+var privateIPv4addr = regexp.MustCompile(`(^127\.0\.0\.1)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)`)
+
+func IsRoutableIPv4(ip string) bool {
+	match := privateIPv4addr.FindStringSubmatch(ip)
+	if match != nil {
+		return false
+	}
+	return true
+}
+
 func GetExternalIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -30,7 +40,16 @@ func GetExternalIP() string {
 	switch len(valid) {
 	case 0:
 		return "127.0.0.1"
+	case 1:
+		return valid[0]
 	default:
+		// try to get a routable ip if possible.
+		for _, ip := range valid {
+			if IsRoutableIPv4(ip) {
+				return ip
+			}
+		}
+		// give up, just return the first.
 		return valid[0]
 	}
 }

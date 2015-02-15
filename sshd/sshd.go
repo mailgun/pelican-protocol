@@ -194,6 +194,9 @@ func handleChannel(newChannel ssh.NewChannel) {
 		return
 	}
 
+	// todo: reject channels that are not specifying port 80 or port 443 traffic.
+	//
+
 	// At this point, we have the opportunity to reject the client's
 	// request for another logical connection
 	connection, requests, err := newChannel.Accept()
@@ -205,7 +208,7 @@ func handleChannel(newChannel ssh.NewChannel) {
 	fmt.Printf("\n sshd: Accept happened: connection = '%#v'\n  requests = '%#v'\n", connection, requests)
 
 	// Sessions have out-of-band requests such as "shell", "pty-req" and "env"
-	// go ssh.DiscardRequests(requests) // or:
+	// go ssh.DiscardRequests(requests) // or, the same but with printf:
 	go func() {
 		for req := range requests {
 			fmt.Printf("\n ignoring req.Type = '%v'\n", req.Type)
@@ -214,6 +217,71 @@ func handleChannel(newChannel ssh.NewChannel) {
 			}
 		}
 	}()
+
+	// the heart of the reverse proxy functionality: foward this connection on
+	// to port 80 or port 443.
+
+	// for now we just forward to 80.
+	// todo: detect and forward to 443 as well.
+
+	go func() {
+		// connection is a ssh.Channel, an interface with Read() and Write() methods
+		// that represents a bidirectional tcp stream being forwarded from the client.
+		k := 0
+		for {
+			// just read a little bit
+			by := make([]byte, 100)
+			nbytes, err := connection.Read(by)
+			if err != nil {
+				if err.Error() == "EOF" {
+					fmt.Printf("connection returned EOF on Read(): closing down.\n")
+					connection.Close()
+					return
+				}
+				fmt.Printf("connection returned error on Read(): '%s'", err)
+			} else {
+				fmt.Printf("sshd read over direct-tcp connection: %d bytes: '%s'\n", nbytes, string(by))
+			}
+			nw, err := connection.Write([]byte(fmt.Sprintf("writing this from sshd back to client: %d", k)))
+			k++
+			if err != nil {
+				if err.Error() == "EOF" {
+					fmt.Printf("connection returned EOF on Write(), closing down.\n")
+					connection.Close()
+					return
+				}
+				fmt.Printf("connection returned error on Write(): '%s'", err)
+			} else {
+				fmt.Printf("sshd write over direct-tcp connection succeeded: %d bytes.\n", nw)
+			}
+			fmt.Printf("sleeping for 2 sec.\n")
+			time.Sleep(2 * time.Second)
+			fmt.Printf("done with sleep.\n")
+		}
+	}()
+
+	// write async
+	go func() {
+		k := -1
+		for {
+
+			nw, err := connection.Write([]byte(fmt.Sprintf("%d async writing this from sshd back to client.", k)))
+			k--
+			if err != nil {
+				if err.Error() == "EOF" {
+					fmt.Printf("connection returned EOF on Write(), closing down.")
+					connection.Close()
+					return
+				}
+				fmt.Printf("connection returned error on Write(): '%s'", err)
+			} else {
+				fmt.Printf("sshd write over direct-tcp connection succeeded: %d bytes.\n", nw)
+			}
+			fmt.Printf("async write sleeping for 1 sec.\n")
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
 }
 
 func chomp(b []byte) []byte {
@@ -230,8 +298,8 @@ func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
 
 	for req := range reqs {
 		fmt.Printf("\n in processRequests(), req.Type = '%#v'\n", req.Type)
-		if req.Type != "tcpip-forward" {
-			// accept only tcpip-forward requests
+		if req.Type != "direct-tcpip" {
+			// accept only direct-tcpip requests
 			if req.WantReply {
 				req.Reply(false, nil)
 			}
