@@ -1,34 +1,11 @@
-//  Inspiration from
-//  https://gist.github.com/jpillora/b480fde82bff51a06238
-//  Thanks to Jamie Pillora for the detailed gist.
-//
-// A small SSH daemon providing bash sessions
-//
-// Server:
-// cd my/new/dir/
-// #generate server keypair
-// ssh-keygen -t rsa
-// go get -v .
-// go run sshd.go
-//
-// Client:
-// ssh foo@localhost -p 2200 #pass=bar
-
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"os/exec"
-	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 
-	"github.com/kr/pty"
 	pelican "github.com/mailgun/pelican-protocol"
 	"golang.org/x/crypto/ssh"
 )
@@ -46,6 +23,7 @@ type User struct {
 	LastIp     string
 	LastTm     time.Time
 	Banned     bool
+	Completed  bool // signup complete marked here.
 }
 
 type Users struct {
@@ -84,8 +62,6 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 	// alive, since if you loose it none of the account names can
 	// be validated.
 
-	/* not so strict at first!
-
 	secretServerId, err := FetchSecretIdForService(".secret_id_for_service")
 	panicOn(err)
 	hmac := Sha1HMAC(pubBytes, []byte(secretServerId))
@@ -102,7 +78,6 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 		// known only to the server.
 		return false, fmt.Errorf("bad-account-id")
 	}
-	*/
 
 	user, ok := u.KnownClientPubKey[strPubBytes]
 	if ok {
@@ -187,7 +162,12 @@ func handleChannels(chans <-chan ssh.NewChannel) {
 	}
 }
 
+// this was for bash channels, which aren't desired for pelican-protocol
+/*
 func handleChannel(newChannel ssh.NewChannel) {
+
+	fmt.Printf("\n in handleChannle() with channel type = '%s'\n", newChannel.ChannelType())
+
 	// Since we're handling a shell, we expect a
 	// channel type of "session". The also describes
 	// "x11", "direct-tcpip" and "forwarded-tcpip"
@@ -262,31 +242,38 @@ func handleChannel(newChannel ssh.NewChannel) {
 		}
 	}()
 }
-
+*/
 // =======================
 
-// parseDims extracts terminal dimensions (width x height) from the provided buffer.
-func parseDims(b []byte) (uint32, uint32) {
-	w := binary.BigEndian.Uint32(b)
-	h := binary.BigEndian.Uint32(b[4:])
-	return w, h
-}
+func handleChannel(newChannel ssh.NewChannel) {
 
-// ======================
+	fmt.Printf("\n in handleChannle() with channel type = '%s'\n", newChannel.ChannelType())
 
-// Winsize stores the Height and Width of a terminal.
-type Winsize struct {
-	Height uint16
-	Width  uint16
-	x      uint16 // unused
-	y      uint16 // unused
-}
+	// Since we're handling a shell, we expect a
+	// channel type of "session". The also describes
+	// "x11", "direct-tcpip" and "forwarded-tcpip"
+	// channel types.
+	if t := newChannel.ChannelType(); t != "forwarded-tcpip" && t != "direct-tcpip" {
+		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %s", t))
+		return
+	}
 
-// SetWinsize sets the size of the given pty.
-//  from https://github.com/creack/termios/blob/master/win/win.go
-func SetWinsize(fd uintptr, w, h uint32) {
-	ws := &Winsize{Width: uint16(w), Height: uint16(h)}
-	syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TIOCSWINSZ), uintptr(unsafe.Pointer(ws)))
+	// At this point, we have the opportunity to reject the client's
+	// request for another logical connection
+	connection, requests, err := newChannel.Accept()
+	if err != nil {
+		log.Printf("Could not accept channel (%s)", err)
+		return
+	}
+
+	fmt.Printf("connection = '%#v'  requests = '%#v'\n", connection, requests)
+
+	// Sessions have out-of-band requests such as "shell", "pty-req" and "env"
+	go func() {
+		for req := range requests {
+			fmt.Printf("\n ignoring req.Type = '%v'\n", req.Type)
+		}
+	}()
 }
 
 func chomp(b []byte) []byte {
