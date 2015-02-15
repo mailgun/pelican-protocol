@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -168,9 +169,6 @@ func (s *PelicanServer) Start() {
 
 		log.Printf("New SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion())
 
-		// no more:Discard all global out-of-band Requests
-		// go ssh.DiscardRequests(reqs)
-
 		go processRequests(sshConn, reqs)
 
 		// Accept all channels
@@ -188,7 +186,16 @@ func handleChannel(newChannel ssh.NewChannel) {
 
 	fmt.Printf("\n in handleChannle() with channel type = '%s'\n", newChannel.ChannelType())
 
-	// "direct-tcpip" and "forwarded-tcpip" channel types may be of interest here.
+	// setup socket to forward this connection to port 80
+	timeout := 5 * time.Second
+	port := 80
+	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), timeout)
+	if err != nil {
+		newChannel.Reject(ssh.ConnectionFailed, fmt.Sprintf("failed to connect to server port %d: %s", port, err))
+		return
+	}
+
+	// "direct-tcpip" is client -> server; "forwarded-tcpip" channel types is -R, server -> client
 	if t := newChannel.ChannelType(); t != "direct-tcpip" {
 		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %s", t))
 		return
@@ -199,89 +206,113 @@ func handleChannel(newChannel ssh.NewChannel) {
 
 	// At this point, we have the opportunity to reject the client's
 	// request for another logical connection
-	connection, requests, err := newChannel.Accept()
+	fromClient, requests, err := newChannel.Accept()
 	if err != nil {
 		log.Printf("Could not accept channel (%s)", err)
 		return
 	}
 
-	fmt.Printf("\n sshd: Accept happened: connection = '%#v'\n  requests = '%#v'\n", connection, requests)
+	fmt.Printf("\n sshd: Accept happened: fromClient = '%#v'\n  requests = '%#v'\n", fromClient, requests)
 
-	// Sessions have out-of-band requests such as "shell", "pty-req" and "env"
-	// go ssh.DiscardRequests(requests) // or, the same but with printf:
-	go func() {
-		for req := range requests {
-			fmt.Printf("\n ignoring req.Type = '%v'\n", req.Type)
-			if req.WantReply {
-				req.Reply(false, nil)
+	// Sessions have out-of-band requests such as "shell", "pty-req" and "env" that
+	// need to be rejected.
+	go ssh.DiscardRequests(requests)
+	// or, the same but with printf:
+	/*
+		go func() {
+			for req := range requests {
+				fmt.Printf("\n ignoring req.Type = '%v'\n", req.Type)
+				if req.WantReply {
+					req.Reply(false, nil)
+				}
 			}
+		}()
+	*/
+
+	// here is the heart of the reverse proxy functionality:
+	// reads on fromClient are forwarded to localConn
+	// reads on localConn are forwarded to fromClient
+
+	// Copy localConn.Reader to fromClient.Writer
+	go func() {
+		_, err := io.Copy(fromClient, localConn)
+		if err != nil {
+			fmt.Printf("io.Copy failed: %v\n", err)
+			fromClient.Close()
+			return
 		}
 	}()
 
-	// the heart of the reverse proxy functionality: foward this connection on
-	// to port 80 or port 443.
-
-	// for now we just forward to 80.
-	// todo: detect and forward to 443 as well.
-
+	// Copy fromClient.Reader to localConn.Writer
 	go func() {
-		// connection is a ssh.Channel, an interface with Read() and Write() methods
-		// that represents a bidirectional tcp stream being forwarded from the client.
-		k := 0
-		for {
-			// just read a little bit
-			by := make([]byte, 100)
-			nbytes, err := connection.Read(by)
-			if err != nil {
-				if err.Error() == "EOF" {
-					fmt.Printf("connection returned EOF on Read(): closing down.\n")
-					connection.Close()
-					return
-				}
-				fmt.Printf("connection returned error on Read(): '%s'", err)
-			} else {
-				fmt.Printf("sshd read over direct-tcp connection: %d bytes: '%s'\n", nbytes, string(by))
-			}
-			nw, err := connection.Write([]byte(fmt.Sprintf("writing this from sshd back to client: %d", k)))
-			k++
-			if err != nil {
-				if err.Error() == "EOF" {
-					fmt.Printf("connection returned EOF on Write(), closing down.\n")
-					connection.Close()
-					return
-				}
-				fmt.Printf("connection returned error on Write(): '%s'", err)
-			} else {
-				fmt.Printf("sshd write over direct-tcp connection succeeded: %d bytes.\n", nw)
-			}
-			fmt.Printf("sleeping for 2 sec.\n")
-			time.Sleep(2 * time.Second)
-			fmt.Printf("done with sleep.\n")
+		_, err := io.Copy(localConn, fromClient)
+		if err != nil {
+			fmt.Printf("io.Copy failed: %v\n", err)
+			fromClient.Close()
+			return
 		}
 	}()
 
-	// write async
-	go func() {
-		k := -1
-		for {
+	/*
+	       // some basic read/write testing:
+	   	go func() {
+	   		// fromClient is a ssh.Channel, an interface with Read() and Write() methods
+	   		// that represents a bidirectional tcp stream being forwarded from the client.
+	   		k := 0
+	   		for {
+	   			// just read a little bit
+	   			by := make([]byte, 100)
+	   			nbytes, err := fromClient.Read(by)
+	   			if err != nil {
+	   				if err.Error() == "EOF" {
+	   					fmt.Printf("fromClient returned EOF on Read(): closing down.\n")
+	   					fromClient.Close()
+	   					return
+	   				}
+	   				fmt.Printf("fromClient returned error on Read(): '%s'", err)
+	   			} else {
+	   				fmt.Printf("sshd read over direct-tcp fromClient: %d bytes: '%s'\n", nbytes, string(by))
+	   			}
+	   			nw, err := fromClient.Write([]byte(fmt.Sprintf("writing this from sshd back to client: %d", k)))
+	   			k++
+	   			if err != nil {
+	   				if err.Error() == "EOF" {
+	   					fmt.Printf("fromClient returned EOF on Write(), closing down.\n")
+	   					fromClient.Close()
+	   					return
+	   				}
+	   				fmt.Printf("fromClient returned error on Write(): '%s'", err)
+	   			} else {
+	   				fmt.Printf("sshd write over direct-tcp fromClient succeeded: %d bytes.\n", nw)
+	   			}
+	   			fmt.Printf("sleeping for 2 sec.\n")
+	   			time.Sleep(2 * time.Second)
+	   			fmt.Printf("done with sleep.\n")
+	   		}
+	   	}()
 
-			nw, err := connection.Write([]byte(fmt.Sprintf("%d async writing this from sshd back to client.", k)))
-			k--
-			if err != nil {
-				if err.Error() == "EOF" {
-					fmt.Printf("connection returned EOF on Write(), closing down.")
-					connection.Close()
-					return
-				}
-				fmt.Printf("connection returned error on Write(): '%s'", err)
-			} else {
-				fmt.Printf("sshd write over direct-tcp connection succeeded: %d bytes.\n", nw)
-			}
-			fmt.Printf("async write sleeping for 1 sec.\n")
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	   	// write async
+	   	go func() {
+	   		k := -1
+	   		for {
 
+	   			nw, err := fromClient.Write([]byte(fmt.Sprintf("%d async writing this from sshd back to client.", k)))
+	   			k--
+	   			if err != nil {
+	   				if err.Error() == "EOF" {
+	   					fmt.Printf("fromClient returned EOF on Write(), closing down.")
+	   					fromClient.Close()
+	   					return
+	   				}
+	   				fmt.Printf("fromClient returned error on Write(): '%s'", err)
+	   			} else {
+	   				fmt.Printf("sshd write over direct-tcp fromClient succeeded: %d bytes.\n", nw)
+	   			}
+	   			fmt.Printf("async write sleeping for 1 sec.\n")
+	   			time.Sleep(1 * time.Second)
+	   		}
+	   	}()
+	*/
 }
 
 func chomp(b []byte) []byte {

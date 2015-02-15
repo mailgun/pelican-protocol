@@ -132,6 +132,7 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 	fmt.Printf("Just before Dial.\n")
 
 	// instead of ssh.Dial, we net.Dial + NewClientConn so we can shutdown reverse forwards.
+	// i.e. to prevent a server from attempting to route traffic through the client.
 
 	addr := hostport
 	conn, err := net.Dial("tcp", addr)

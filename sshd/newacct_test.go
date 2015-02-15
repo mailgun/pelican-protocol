@@ -4,10 +4,10 @@ import (
 	"fmt"
 	cv "github.com/glycerine/goconvey/convey"
 	"github.com/mailgun/pelican-protocol"
-	"os"
 	"testing"
 )
 
+/*
 func main() {
 	fmt.Printf("cli.go starting.\n")
 
@@ -20,6 +20,7 @@ func main() {
 	panicOn(err)
 
 }
+*/
 
 func TestServerRecognizesTheNewAcctKey(t *testing.T) {
 
