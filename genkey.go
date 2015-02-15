@@ -20,22 +20,26 @@ func GenRsaKeyPair(rsa_file string, bits int) (priv *rsa.PrivateKey, err error) 
 	err = privKey.Validate()
 	panicOn(err)
 
-	// write to disk
-	// save to pem
-	privBytes := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "RSA PRIVATE KEY",
-			Bytes: x509.MarshalPKCS1PrivateKey(privKey),
-		},
-	)
+	if rsa_file != "" {
 
-	pubBytes := RsaToSshPublicKey(pubKey)
+		// write to disk
+		// save to pem: serialize private key
+		privBytes := pem.EncodeToMemory(
+			&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: x509.MarshalPKCS1PrivateKey(privKey),
+			},
+		)
 
-	err = ioutil.WriteFile(rsa_file, privBytes, 0600)
-	panicOn(err)
+		// serialize public key
+		pubBytes := RsaToSshPublicKey(pubKey)
 
-	err = ioutil.WriteFile(rsa_file+".pub", pubBytes, 0600)
-	panicOn(err)
+		err = ioutil.WriteFile(rsa_file, privBytes, 0600)
+		panicOn(err)
+
+		err = ioutil.WriteFile(rsa_file+".pub", pubBytes, 0600)
+		panicOn(err)
+	}
 
 	return privKey, nil
 }

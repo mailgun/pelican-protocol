@@ -1,4 +1,5 @@
-// from: https://gist.github.com/jpillora/b480fde82bff51a06238
+//  Inspiration from
+//  https://gist.github.com/jpillora/b480fde82bff51a06238
 //  Thanks to Jamie Pillora for the detailed gist.
 //
 // A small SSH daemon providing bash sessions
@@ -25,6 +26,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/kr/pty"
@@ -38,8 +40,10 @@ type User struct {
 	FirstName  string
 	MiddleName string
 	LastName   string
-	FirstIP    string
-	LastIP     string
+	FirstIp    string
+	FirstTm    time.Time
+	LastIp     string
+	LastTm     time.Time
 	Banned     bool
 }
 
@@ -49,7 +53,7 @@ type Users struct {
 
 func NewUsers() *Users {
 	u := &Users{
-		KnownClientPubKey: make(map[string]Client),
+		KnownClientPubKey: make(map[string]User),
 	}
 	return u
 }
@@ -60,29 +64,39 @@ func (u *Users) PermitClientConnection(clientAddr net.Addr, clientPubKey ssh.Pub
 	pubBytes := ssh.MarshalAuthorizedKey(clientPubKey)
 	strPubBytes := string(pubBytes)
 
+	if strPubBytes == NewAcctPublicKey {
+		return true, fmt.Errorf("new-account")
+	}
+
 	user, ok := u.KnownClientPubKey[strPubBytes]
 	if ok {
 		if user.Banned {
-			return false, fmt.Errorf("banned user")
+			return false, fmt.Errorf("banned-user")
+		}
+		now := time.Now()
+		user.LastIp = clientAddr.String()
+		user.LastTm = now
+		if user.FirstIp == "" {
+			user.FirstIp = user.LastIp
+			user.FirstTm = now
 		}
 		return true, nil
 	}
 
-	return false, fmt.Errorf("user unknown")
+	return false, fmt.Errorf("user-unknown")
 }
 
 func main() {
 
-	// In the latest version of crypto/ssh (after Go 1.3), the SSH server type has been removed
-	// in favour of an SSH connection type. A ssh.ServerConn is created by passing an existing
-	// net.Conn and a ssh.ServerConfig to ssh.NewServerConn, in effect, upgrading the net.Conn
-	// into an ssh.ServerConn
+	users := NewUsers()
 
 	config := &ssh.ServerConfig{
+		// must have keys
 		NoClientAuth: false,
-		// Auth-related things should be constant-time to avoid timing attacks.
+
+		// pki based login only
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			ok, err := auth.PermitClientConnection(conn.RemoteAddr(), key)
+			ok, err := users.PermitClientConnection(conn.RemoteAddr(), key)
 			if !ok {
 				return nil, err
 			}
@@ -91,20 +105,11 @@ func main() {
 			}}
 			return perm, nil
 		},
-		/*
-			//Define a function to run when a client attempts a password login
-			PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-				// Should use constant-time compare (or better, salt+hash) in a production setting.
-				if c.User() == "foo" && string(pass) == "bar" {
-					return nil, nil
-				}
-				return nil, fmt.Errorf("password rejected for %q", c.User())
-			},
-		*/
-		// You may also explicitly allow anonymous client authentication, though anon bash
-		// sessions may not be a wise idea. Like this:
-		// NoClientAuth: true,
+		// no passwords
+		PasswordCallback: nil,
 	}
+
+	// Need at least one host key, added with config.AddHostKey()
 
 	// You can generate a keypair with 'ssh-keygen -t rsa'
 	privateBytes, err := ioutil.ReadFile("id_rsa")
