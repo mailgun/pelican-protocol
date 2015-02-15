@@ -1,45 +1,48 @@
 package main
 
 import (
-	"code.google.com/p/go.crypto/ssh"
 	cryptrand "crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"fmt"
-	"github.com/mailgun/pelican-protocol"
+	"encoding/pem"
 	"io/ioutil"
-	"reflect"
+
+	"code.google.com/p/go.crypto/ssh"
 )
 
 func GenRsaKeyPair(rsa_file string, bits int) (priv *rsa.PrivateKey, err error) {
 
 	privKey, err := rsa.GenerateKey(cryptrand.Reader, bits)
 	panicOn(err)
-	fmt.Printf("done generating key.\n")
-	err = priv.Validate()
+
+	var pubKey *rsa.PublicKey = privKey.Public().(*rsa.PublicKey)
+
+	err = privKey.Validate()
 	panicOn(err)
 
-	pubKey := priv.Public()
 	// write to disk
+	// save to pem
+	privBytes := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(privKey),
+		},
+	)
 
-	pubBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	pubBytes := RsaToSshPublicKey(pubKey)
+
+	err = ioutil.WriteFile(rsa_file, privBytes, 0600)
 	panicOn(err)
 
-	pub2, _, _, _, err := ssh.ParseAuthorizedKey(pubBytes)
+	err = ioutil.WriteFile(rsa_file+".pub", pubBytes, 0600)
 	panicOn(err)
-	if !reflect.DeepEqual(pubKey, pub2) {
-		panic("error on serializing and re-reading RSA Public key")
-	}
-
-	err = ioutil.WriteFile(rsa_file, pubBytes, 0600)
-	panicOn(err)
-
-	priv2, err := pelican.LoadRSAPrivateKey(rsa_file)
-	panicOn(err)
-
-	if !reflect.DeepEqual(privKey, priv2) {
-		panic("error on serializing and re-reading RSA Private key")
-	}
 
 	return privKey, nil
+}
+
+// convert RSA Public Key to an SSH authorized_keys format
+func RsaToSshPublicKey(pubkey *rsa.PublicKey) []byte {
+	pub, err := ssh.NewPublicKey(pubkey)
+	panicOn(err)
+	return ssh.MarshalAuthorizedKey(pub)
 }
