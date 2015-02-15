@@ -1,5 +1,5 @@
 
-.PHONY: all test clean
+.PHONY: all test clean debug
 
 all:
 	go install

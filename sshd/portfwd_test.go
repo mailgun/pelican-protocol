@@ -9,17 +9,38 @@ import (
 
 func TestClientToServerPortForward(t *testing.T) {
 
-	//sshd := NewSshd()
-	//ssh.Start()
+	// 1. web server
+	webPort := pelican.GetAvailPort()
+	webAddr := fmt.Sprintf("127.0.0.1:%d", webPort)
+	w := NewWebServer(webAddr, nil)
+	w.Start()
+	defer w.Stop()
 
+	// 2. ssd in front of web server
+	pelPort := pelican.GetAvailPort()
+	pelIp := "127.0.0.1"
+
+	peld := NewPelicanServer(&PelSrvCfg{
+		PelicanListenPort: pelPort,
+		HttpDestIp:        pelIp,
+		HttpDestPort:      webPort,
+	})
+	peld.Start()
+	defer peld.Stop()
+
+	// 3. client makes a new account on the pelical-protocol/sshd server,
+	// gets the server's hostkey, provides the server a client public key.
 	my_known_hosts_file := "my.known.hosts"
 	pelican.CleanupOldKnownHosts(my_known_hosts_file)
 
 	h := pelican.NewKnownHosts(my_known_hosts_file)
 	defer h.Close()
 
-	err := h.SshMakeNewAcct(pelican.GetNewAcctPrivateKey(), "localhost", 2200)
+	newkey := pelican.GetNewAcctPrivateKey()
+	err := h.SshMakeNewAcct(newkey, pelIp, pelPort)
 	panicOn(err)
+
+	// 4. fetch some traffic from the website via the tunnel
 
 	cv.Convey("When the client tunnels bidirectional http traffic to the server, the server should forward that traffic to the local website on port 80", t, func() {
 

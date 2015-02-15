@@ -3,7 +3,6 @@ package pelican
 import (
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"reflect"
 	"strings"
@@ -186,26 +185,6 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 	}
 
 	return Unknown, nil, record
-}
-
-func LoadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
-	buf, err := ioutil.ReadFile(path)
-	panicOn(err)
-
-	privkey, err = ssh.ParsePrivateKey(buf)
-	panicOn(err)
-
-	return privkey, err
-}
-
-func LoadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
-	buf, err := ioutil.ReadFile(path)
-	panicOn(err)
-
-	pub, _, _, _, err := ssh.ParseAuthorizedKey(buf)
-	panicOn(err)
-
-	return pub, err
 }
 
 func (h *KnownHosts) SshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {

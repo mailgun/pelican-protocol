@@ -102,20 +102,28 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 }
 
 func main() {
-	s := NewPelicanServer()
+	s := NewPelicanServer(&PelSrvCfg{PelicanListenPort: 8080, HttpDestIp: "127.0.0.1", HttpDestPort: 80})
 	s.Start()
 }
 
 type PelicanServer struct {
 	Users *Users
-	Cfg   *ssh.ServerConfig
+	Sshd  *ssh.ServerConfig
+	Cfg   PelSrvCfg
 }
 
-func NewPelicanServer() *PelicanServer {
+type PelSrvCfg struct {
+	PelicanListenPort int
+	HttpDestIp        string
+	HttpDestPort      string
+}
+
+func NewPelicanServer(cfg *PelSrvCfg) *PelicanServer {
 
 	s := &PelicanServer{
 		Users: NewUsers(),
 	}
+	s.SetDefaults(cfg)
 
 	config := &ssh.ServerConfig{
 		// must have keys
@@ -139,7 +147,7 @@ func NewPelicanServer() *PelicanServer {
 	err := GetOrGenServerKey("./host-key-id-rsa", config)
 	panicOn(err)
 
-	s.Cfg = config
+	s.Sshd = config
 
 	return s
 }
@@ -161,7 +169,7 @@ func (s *PelicanServer) Start() {
 			continue
 		}
 		// Before use, a handshake must be performed on the incoming net.Conn.
-		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, s.Cfg)
+		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, s.Sshd)
 		if err != nil {
 			log.Printf("Failed to handshake (%s)", err)
 			continue
@@ -359,5 +367,21 @@ func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
 		*/
 
 		req.Reply(true, nil)
+	}
+}
+
+func (s *PelicanServer) SetDefaults(cfg *PelSrvCfg) {
+	if cfg != nil {
+		s.Cfg = *cfg
+	}
+
+	if s.Cfg.PelicanListenPort == 0 {
+		s.Cfg.PelicanListenPort = 8080
+	}
+	if s.Cfg.HttpDestIp == "" {
+		s.Cfg.HttpDestIp = "127.0.0.1"
+	}
+	if s.Cfg.HttpDestPort == 0 {
+		s.Cfg.HttpDestPort = 80
 	}
 }
