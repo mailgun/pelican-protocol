@@ -9,7 +9,7 @@ import (
 func TestSshHandshake(t *testing.T) {
 	rsa_file := "./id_rsa"
 
-	rsa, err := GenRsaKeyPair(rsa_file, 1024)
+	rsa, err := GenRsaKeyPair(rsa_file, 4096)
 	panicOn(err)
 
 	sshd, err := NewSshd(2022, rsa)

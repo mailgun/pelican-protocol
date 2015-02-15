@@ -2,10 +2,13 @@ package pelican
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"reflect"
+
+	"crypto/sha256"
 
 	"code.google.com/p/go.crypto/ssh"
 )
@@ -267,4 +270,11 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 	//fmt.Println(b.String())
 
 	return b.Bytes(), nil
+}
+
+// Fingerprint performs a SHA256 BASE64 fingerprint of the PublicKey, similar to OpenSSH.
+// See: https://anongit.mindrot.org/openssh.git/commit/?id=56d1c83cdd1ac
+func Fingerprint(k ssh.PublicKey) string {
+	hash := sha256.Sum256(k.Marshal())
+	return base64.StdEncoding.EncodeToString(hash[:])
 }

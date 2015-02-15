@@ -31,6 +31,46 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+type User struct {
+	PubKey     string
+	Email      string
+	SMS        string
+	FirstName  string
+	MiddleName string
+	LastName   string
+	FirstIP    string
+	LastIP     string
+	Banned     bool
+}
+
+type Users struct {
+	KnownClientPubKey map[string]User
+}
+
+func NewUsers() *Users {
+	u := &Users{
+		KnownClientPubKey: make(map[string]Client),
+	}
+	return u
+}
+
+// should be constant-time to avoid side-channel timing attacks.
+func (u *Users) PermitClientConnection(clientAddr net.Addr, clientPubKey ssh.PublicKey) (bool, error) {
+
+	pubBytes := ssh.MarshalAuthorizedKey(clientPubKey)
+	strPubBytes := string(pubBytes)
+
+	user, ok := u.KnownClientPubKey[strPubBytes]
+	if ok {
+		if user.Banned {
+			return false, fmt.Errorf("banned user")
+		}
+		return true, nil
+	}
+
+	return false, fmt.Errorf("user unknown")
+}
+
 func main() {
 
 	// In the latest version of crypto/ssh (after Go 1.3), the SSH server type has been removed
@@ -39,18 +79,31 @@ func main() {
 	// into an ssh.ServerConn
 
 	config := &ssh.ServerConfig{
-		//Define a function to run when a client attempts a password login
-		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			// Should use constant-time compare (or better, salt+hash) in a production setting.
-			if c.User() == "foo" && string(pass) == "bar" {
-				return nil, nil
+		NoClientAuth: false,
+		// Auth-related things should be constant-time to avoid timing attacks.
+		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			ok, err := auth.PermitClientConnection(conn.RemoteAddr(), key)
+			if !ok {
+				return nil, err
 			}
-			return nil, fmt.Errorf("password rejected for %q", c.User())
+			perm := &ssh.Permissions{Extensions: map[string]string{
+				"pubkey": string(key.Marshal()),
+			}}
+			return perm, nil
 		},
+		/*
+			//Define a function to run when a client attempts a password login
+			PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+				// Should use constant-time compare (or better, salt+hash) in a production setting.
+				if c.User() == "foo" && string(pass) == "bar" {
+					return nil, nil
+				}
+				return nil, fmt.Errorf("password rejected for %q", c.User())
+			},
+		*/
 		// You may also explicitly allow anonymous client authentication, though anon bash
 		// sessions may not be a wise idea. Like this:
 		// NoClientAuth: true,
-		NoClientAuth: true,
 	}
 
 	// You can generate a keypair with 'ssh-keygen -t rsa'
