@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net"
 	"reflect"
+	"strings"
 
 	"crypto/sha256"
 
@@ -147,17 +148,27 @@ func (s HostState) String() string {
 func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.PublicKey, pubBytes []byte, addIfNotKnown bool) (HostState, error, *ServerPubKey) {
 	strPubBytes := string(pubBytes)
 
+	fmt.Printf("\n in HostAlreadyKnonw...starting.\n")
+
 	record, ok := h.Hosts[strPubBytes]
 	if ok {
 		if record.ServerBanned {
 			return Banned, fmt.Errorf("the key '%s' has been marked as banned.", strPubBytes), record
 		}
 
+		if strings.HasPrefix(hostname, "localhost") || strings.HasPrefix(hostname, "127.0.0.1") {
+			// no host checking when coming from localhost
+			return KnownOK, nil, record
+		}
 		if record.Hostname != hostname {
-			return KnownRecordMismatch, fmt.Errorf("hostname mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.Hostname, hostname), record
+			err := fmt.Errorf("hostname mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.Hostname, hostname)
+			fmt.Printf("\n in HostAlreadyKnown, returning KnownRecordMismatch: '%s'", err)
+			return KnownRecordMismatch, err, record
 		}
 		if !reflect.DeepEqual(record.remote, remote) {
-			return KnownRecordMismatch, fmt.Errorf("remote address mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.remote, remote), record
+			err := fmt.Errorf("remote address mismatch for key '%s': '%s' in records, '%s' supplied now.", strPubBytes, record.remote, remote)
+			fmt.Printf("\n in HostAlreadyKnown, returning KnownRecordMismatch: '%s'", err)
+			return KnownRecordMismatch, err, record
 		}
 		return KnownOK, nil, record
 	}
@@ -281,6 +292,8 @@ func Fingerprint(k ssh.PublicKey) string {
 
 func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) error {
 
+	fmt.Printf("\n ========== Begin SshMakeNewAcct().\n")
+
 	// the callback just after key-exchange to validate server is here
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 
@@ -327,6 +340,9 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 		HostKeyCallback: hostKeyCallback,
 	}
 	hostport := fmt.Sprintf("%s:%d", host, port)
+
+	fmt.Printf("Just before Dial.\n")
+
 	_, err = ssh.Dial("tcp", hostport, cfg)
 	if err != nil {
 		panic(fmt.Sprintf("sshConnect() failed at dial to '%s': '%s' ", hostport, err.Error()))
