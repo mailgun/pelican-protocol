@@ -194,7 +194,7 @@ func loadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
 	return pub, err
 }
 
-func (h *KnownHosts) sshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {
+func (h *KnownHosts) SshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {
 
 	// the kallback just after key-exchange to validate server is here
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -211,13 +211,19 @@ func (h *KnownHosts) sshConnect(username string, keypath string, host string, po
 			return fmt.Errorf("banned server")
 		}
 
-		if err != nil {
-			// this is strict checking of hosts here, any non-nil error
-			// will fail the ssh handshake.
-			return err
-		}
+		// super lenient for the moment.
+		err = nil
+		return err
+		/*
 
-		return nil
+			if err != nil {
+				// this is strict checking of hosts here, any non-nil error
+				// will fail the ssh handshake.
+				return err
+			}
+
+			return nil
+		*/
 	}
 	// end hostKeyCallback closure definition. Has to be a closure to access h.
 

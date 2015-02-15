@@ -48,8 +48,9 @@ func main() {
 			return nil, fmt.Errorf("password rejected for %q", c.User())
 		},
 		// You may also explicitly allow anonymous client authentication, though anon bash
-		// sessions may not be a wise idea
+		// sessions may not be a wise idea. Like this:
 		// NoClientAuth: true,
+		NoClientAuth: true,
 	}
 
 	// You can generate a keypair with 'ssh-keygen -t rsa'

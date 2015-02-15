@@ -23,7 +23,8 @@ func (s *KnownHosts) saveJsonSnappy(fn string) error {
 	// don't blow away the last good (fn) until the new version is completely written.
 	fnNew := fn + ".new"
 
-	exec.Command("mv", fn+".prev", fn+".prev.prev").Run()
+	// for backups
+	//exec.Command("mv", fn+".prev", fn+".prev.prev").Run()
 	exec.Command("cp", "-p", fn, fn+".prev").Run()
 
 	j, err := unsnap.Create(fnNew)

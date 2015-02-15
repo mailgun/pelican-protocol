@@ -45,7 +45,7 @@ func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 	dockerip := getDockerIP()
 
 	fullcmd := strings.Join(cmd, " ")
-	out, err := h.sshConnect("root", "dot.ssh/id_rsa_docker_root", dockerip, 22, fullcmd)
+	out, err := h.SshConnect("root", "dot.ssh/id_rsa_docker_root", dockerip, 22, fullcmd)
 	if err != nil {
 		panic(err)
 	}
