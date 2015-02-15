@@ -63,12 +63,20 @@ func NewUsers() *Users {
 func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, clientPubKey ssh.PublicKey) (bool, error) {
 
 	pubBytes := ssh.MarshalAuthorizedKey(clientPubKey)
-	strPubBytes := string(pubBytes)
+	strPubBytes := string(chomp(pubBytes))
+
+	fmt.Printf("\n in PermitClientConnection(): clientUser = '%s', clientAddr = '%#v', clientPubKey = '%s'\n", clientUser, clientAddr, strPubBytes)
 
 	if strPubBytes == pelican.GetNewAcctPublicKey() {
+		fmt.Printf("PermitClientConnection detected NewAcct public key, returning true\n")
 		return true, fmt.Errorf("new-account")
 	}
+	fmt.Printf("equal? %v \n pelican.GetNewAcctPublicKey() = \n'%s'\n and strPubBytes = \n'%s'\n", pelican.GetNewAcctPublicKey() == strPubBytes, pelican.GetNewAcctPublicKey(), strPubBytes)
 
+	if clientUser == "newacct" {
+		fmt.Printf("PermitClientConnection detected user 'newacct', returning true\n")
+		return true, fmt.Errorf("new-account")
+	}
 	// the username is issued by the server upon the completion of the
 	// new account protocol, and is the hmac of the client's public key
 	// signed with a secret only the server knows. The secret used
@@ -99,6 +107,7 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 	user, ok := u.KnownClientPubKey[strPubBytes]
 	if ok {
 		if user.Banned {
+			fmt.Printf("PermitClientConnection returning banned-user\n")
 			return false, fmt.Errorf("banned-user")
 		}
 		now := time.Now()
@@ -108,9 +117,11 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 			user.FirstIp = user.LastIp
 			user.FirstTm = now
 		}
+		fmt.Printf("PermitClientConnection true, user known.\n")
 		return true, nil
 	}
 
+	fmt.Printf("PermitClientConnection false: user-unknown\n")
 	return false, fmt.Errorf("user-unknown")
 }
 
@@ -272,9 +283,17 @@ type Winsize struct {
 }
 
 // SetWinsize sets the size of the given pty.
+//  from https://github.com/creack/termios/blob/master/win/win.go
 func SetWinsize(fd uintptr, w, h uint32) {
 	ws := &Winsize{Width: uint16(w), Height: uint16(h)}
 	syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TIOCSWINSZ), uintptr(unsafe.Pointer(ws)))
 }
 
-// Borrowed from https://github.com/creack/termios/blob/master/win/win.go
+func chomp(b []byte) []byte {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] != '\n' {
+			return b[:i+1]
+		}
+	}
+	return b[:0]
+}

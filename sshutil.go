@@ -296,7 +296,6 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 
 	// the callback just after key-exchange to validate server is here
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-
 		pubBytes := ssh.MarshalAuthorizedKey(key)
 
 		hostStatus, err, spubkey := h.HostAlreadyKnown(hostname, remote, key, pubBytes, AddIfNotKnown)
@@ -306,10 +305,12 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) e
 		h.curHost = spubkey
 
 		if hostStatus == Banned {
+			fmt.Printf("detected Banned host.\n")
 			return fmt.Errorf("banned server")
 		}
 
 		// super lenient for the moment.
+		fmt.Printf("debug/early dev: returning nil from hostKeyCallback()\n")
 		err = nil
 		return err
 		/*
