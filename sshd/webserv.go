@@ -144,9 +144,9 @@ func NewWebServer(addr string, cfg *WebConfig) *WebServer {
 		fmt.Fprintf(w, `<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>%s</title>`, title)
 		s.AddScriptIncludes(w)
 		fmt.Fprintf(w, `</head>`)
-		fmt.Fprintf(w, "<body>\n")
-
-		fmt.Fprintf(w, "</body><html>")
+		fmt.Fprintf(w, "<body>\n\n")
+		fmt.Fprintf(w, "[This is the main static body.]\n")
+		fmt.Fprintf(w, "\n</body><html>")
 	}
 
 	s.mux = tigertonic.NewTrieServeMux()

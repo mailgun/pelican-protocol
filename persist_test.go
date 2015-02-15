@@ -3,13 +3,8 @@ package pelican
 import (
 	"fmt"
 	cv "github.com/glycerine/goconvey/convey"
-	"os"
 	"testing"
 )
-
-func CleanupOldKnownHosts(fn string) {
-	os.Remove(fn + defaultFileFormat())
-}
 
 func TestKnownHostsSaveAndRestoreWork(t *testing.T) {
 	StopAllDockers()

@@ -1,5 +1,10 @@
 package pelican
 
+import (
+	"io/ioutil"
+	"os"
+)
+
 /* use:
 
 skipCleanup := false
@@ -15,7 +20,7 @@ type TestConfig struct {
 }
 
 func NewTestConfig() *TestConfig {
-	return &Config{}
+	return &TestConfig{}
 }
 
 func MoveToTestDir() *TestConfig {
