@@ -35,6 +35,7 @@ import (
 
 type User struct {
 	PubKey     string
+	AcctId     string // 32-byte one-way crypto hash of PubKey. The 'user' who is ssh-ing in.
 	Email      string
 	SMS        string
 	FirstName  string
@@ -59,7 +60,7 @@ func NewUsers() *Users {
 }
 
 // should be constant-time to avoid side-channel timing attacks.
-func (u *Users) PermitClientConnection(clientAddr net.Addr, clientPubKey ssh.PublicKey) (bool, error) {
+func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, clientPubKey ssh.PublicKey) (bool, error) {
 
 	pubBytes := ssh.MarshalAuthorizedKey(clientPubKey)
 	strPubBytes := string(pubBytes)
@@ -67,6 +68,33 @@ func (u *Users) PermitClientConnection(clientAddr net.Addr, clientPubKey ssh.Pub
 	if strPubBytes == pelican.GetNewAcctPublicKey() {
 		return true, fmt.Errorf("new-account")
 	}
+
+	// the username is issued by the server upon the completion of the
+	// new account protocol, and is the hmac of the client's public key
+	// signed with a secret only the server knows. The secret used
+	// to sign the hmac should be preserved as long as the service is
+	// alive, since if you loose it none of the account names can
+	// be validated.
+
+	/* not so strict at first!
+
+	secretServerId, err := FetchSecretIdForService(".secret_id_for_service")
+	panicOn(err)
+	hmac := Sha1HMAC(pubBytes, []byte(secretServerId))
+	acctid := encodeSha1HmacAsUsername(hmac)
+
+	if clientUser != acctid {
+		// somebody is trying to use a public key we've seen before, but
+		// they did not receive our signature (acctid) for it, so likely
+		// what happened is they didn't complete the new-account-creation
+		// protocol. Hence we reject their connection.
+		// The final step in completion of the new account protocol is that
+		// we give the client their acctid (equivalent of a username);
+		// which is an hmac of their public key, signed with a secret
+		// known only to the server.
+		return false, fmt.Errorf("bad-account-id")
+	}
+	*/
 
 	user, ok := u.KnownClientPubKey[strPubBytes]
 	if ok {
@@ -96,7 +124,7 @@ func main() {
 
 		// pki based login only
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			ok, err := users.PermitClientConnection(conn.RemoteAddr(), key)
+			ok, err := users.PermitClientConnection(conn.User(), conn.RemoteAddr(), key)
 			if !ok {
 				return nil, err
 			}

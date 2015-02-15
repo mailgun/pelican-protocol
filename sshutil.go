@@ -187,7 +187,7 @@ func LoadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
 	return privkey, err
 }
 
-func loadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
+func LoadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
 	buf, err := ioutil.ReadFile(path)
 	panicOn(err)
 
@@ -199,7 +199,7 @@ func loadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
 
 func (h *KnownHosts) SshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {
 
-	// the kallback just after key-exchange to validate server is here
+	// the callback just after key-exchange to validate server is here
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 
 		pubBytes := ssh.MarshalAuthorizedKey(key)
@@ -277,4 +277,62 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 func Fingerprint(k ssh.PublicKey) string {
 	hash := sha256.Sum256(k.Marshal())
 	return base64.StdEncoding.EncodeToString(hash[:])
+}
+
+func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) error {
+
+	// the callback just after key-exchange to validate server is here
+	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+
+		pubBytes := ssh.MarshalAuthorizedKey(key)
+
+		hostStatus, err, spubkey := h.HostAlreadyKnown(hostname, remote, key, pubBytes, AddIfNotKnown)
+		fmt.Printf("in hostKeyCallback(), hostStatus: '%s', hostname='%s', remote='%s', key.Type='%s'  key.Marshal='%s'\n", hostStatus, hostname, remote, key.Type(), pubBytes)
+
+		h.curStatus = hostStatus
+		h.curHost = spubkey
+
+		if hostStatus == Banned {
+			return fmt.Errorf("banned server")
+		}
+
+		// super lenient for the moment.
+		err = nil
+		return err
+		/*
+
+			if err != nil {
+				// this is strict checking of hosts here, any non-nil error
+				// will fail the ssh handshake.
+				return err
+			}
+
+			return nil
+		*/
+	}
+	// end hostKeyCallback closure definition. Has to be a closure to access h.
+
+	privkeyString := GetNewAcctPrivateKey()
+	privkey, err := ssh.ParsePrivateKey([]byte(privkeyString))
+	panicOn(err)
+
+	cfg := &ssh.ClientConfig{
+		User: "newacct",
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(privkey),
+		},
+		// HostKeyCallback, if not nil, is called during the cryptographic
+		// handshake to validate the server's host key. A nil HostKeyCallback
+		// implies that all host keys are accepted.
+		HostKeyCallback: hostKeyCallback,
+	}
+	hostport := fmt.Sprintf("%s:%d", host, port)
+	_, err = ssh.Dial("tcp", hostport, cfg)
+	if err != nil {
+		panic(fmt.Sprintf("sshConnect() failed at dial to '%s': '%s' ", hostport, err.Error()))
+	}
+
+	fmt.Printf("Dial completed without error.\n")
+
+	return nil
 }

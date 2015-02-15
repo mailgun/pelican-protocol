@@ -2,24 +2,29 @@ package main
 
 import (
 	"fmt"
-	"github.com/glycerine/ruid"
-	"github.com/mailgun/pelican-protocol"
 	"io/ioutil"
 	"os"
+
+	"github.com/glycerine/ruid"
+	"github.com/mailgun/pelican-protocol"
 )
 
 func FetchOrGenSecretIdForService(path string) string {
 	if FileExists(path) {
-		return FetchSecretIdForService(path)
+		secret, err := FetchSecretIdForService(path)
+		panicOn(err)
+		return secret
 	} else {
 		return GenSecretIdForService(path)
 	}
 }
 
-func FetchSecretIdForService(path string) string {
+func FetchSecretIdForService(path string) (string, error) {
 	by, err := ioutil.ReadFile(path)
-	panicOn(err)
-	return string(by)
+	if err != nil {
+		return "", err
+	}
+	return string(by), nil
 }
 
 func GenSecretIdForService(path string) string {

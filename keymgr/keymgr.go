@@ -54,12 +54,6 @@ func main() {
 
 	key := &KeyPayload{PublicKey: "0123456789abcdef-hello-public-key"}
 
-	secretServerId := FetchOrGenSecretIdForService(".secret_id_for_service")
-
-	hmac := Sha1HMAC([]byte(key.PublicKey), []byte(secretServerId))
-
-	key.AcctUsername = encodeSha1HmacAsUsername(hmac)
-
 	SendKeyPayload(key)
 	fmt.Printf("\n done sending: '%#v'.\n", key)
 }
