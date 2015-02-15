@@ -102,7 +102,17 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 
 func main() {
 
-	users := NewUsers()
+}
+
+type PelicanSrv struct {
+	Users *Users
+}
+
+func NewPelicanServer() *PelicanSrv {
+
+	s := &PelicanSrv{
+		Users: NewUsers(),
+	}
 
 	config := &ssh.ServerConfig{
 		// must have keys
@@ -110,7 +120,7 @@ func main() {
 
 		// pki based login only
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			ok, err := users.PermitClientConnection(conn.User(), conn.RemoteAddr(), key)
+			ok, err := s.Users.PermitClientConnection(conn.User(), conn.RemoteAddr(), key)
 			if !ok {
 				return nil, err
 			}
@@ -148,102 +158,22 @@ func main() {
 		}
 
 		log.Printf("New SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion())
-		// Discard all global out-of-band Requests
-		go ssh.DiscardRequests(reqs)
+
+		// no more:Discard all global out-of-band Requests
+		// go ssh.DiscardRequests(reqs)
+
+		go processRequests(sshConn, reqs)
+
 		// Accept all channels
 		go handleChannels(chans)
 	}
 }
 
 func handleChannels(chans <-chan ssh.NewChannel) {
-	// Service the incoming Channel channel in go routine
 	for newChannel := range chans {
 		go handleChannel(newChannel)
 	}
 }
-
-// this was for bash channels, which aren't desired for pelican-protocol
-/*
-func handleChannel(newChannel ssh.NewChannel) {
-
-	fmt.Printf("\n in handleChannle() with channel type = '%s'\n", newChannel.ChannelType())
-
-	// Since we're handling a shell, we expect a
-	// channel type of "session". The also describes
-	// "x11", "direct-tcpip" and "forwarded-tcpip"
-	// channel types.
-	if t := newChannel.ChannelType(); t != "session" {
-		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %s", t))
-		return
-	}
-
-	// At this point, we have the opportunity to reject the client's
-	// request for another logical connection
-	connection, requests, err := newChannel.Accept()
-	if err != nil {
-		log.Printf("Could not accept channel (%s)", err)
-		return
-	}
-
-	// Fire up bash for this session
-	bash := exec.Command("bash")
-
-	// Prepare teardown function
-	close := func() {
-		connection.Close()
-		_, err := bash.Process.Wait()
-		if err != nil {
-			log.Printf("Failed to exit bash (%s)", err)
-		}
-		log.Printf("Session closed")
-	}
-
-	// Allocate a terminal for this channel
-	log.Print("Creating pty...")
-	bashf, err := pty.Start(bash)
-	if err != nil {
-		log.Printf("Could not start pty (%s)", err)
-		close()
-		return
-	}
-
-	//pipe session to bash and visa-versa
-	var once sync.Once
-	go func() {
-		io.Copy(connection, bashf)
-		once.Do(close)
-	}()
-	go func() {
-		io.Copy(bashf, connection)
-		once.Do(close)
-	}()
-
-	// Sessions have out-of-band requests such as "shell", "pty-req" and "env"
-	go func() {
-		for req := range requests {
-			switch req.Type {
-			case "shell":
-				// We only accept the default shell
-				// (i.e. no command in the Payload)
-				if len(req.Payload) == 0 {
-					req.Reply(true, nil)
-				}
-			case "pty-req":
-				termLen := req.Payload[3]
-				w, h := parseDims(req.Payload[termLen+4:])
-				SetWinsize(bashf.Fd(), w, h)
-				// Responding true (OK) here will let the client
-				// know we have a pty ready for input
-				req.Reply(true, nil)
-			case "window-change":
-				w, h := parseDims(req.Payload)
-				SetWinsize(bashf.Fd(), w, h)
-			}
-		}
-	}()
-}
-*/
-// =======================
 
 func handleChannel(newChannel ssh.NewChannel) {
 
@@ -269,9 +199,13 @@ func handleChannel(newChannel ssh.NewChannel) {
 	fmt.Printf("connection = '%#v'  requests = '%#v'\n", connection, requests)
 
 	// Sessions have out-of-band requests such as "shell", "pty-req" and "env"
+	// go ssh.DiscardRequests(requests) // or:
 	go func() {
 		for req := range requests {
 			fmt.Printf("\n ignoring req.Type = '%v'\n", req.Type)
+			if req.WantReply {
+				req.Reply(false, nil)
+			}
 		}
 	}()
 }
@@ -283,4 +217,88 @@ func chomp(b []byte) []byte {
 		}
 	}
 	return b[:0]
+}
+
+func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
+	for req := range reqs {
+		if req.Type != "tcpip-forward" {
+			// accept only tcpip-forward requests
+			if req.WantReply {
+				req.Reply(false, nil)
+			}
+			continue
+		}
+		type channelForwardMsg struct {
+			Laddr string
+			Lport uint32
+		}
+		m := &channelForwardMsg{}
+		ssh.Unmarshal(req.Payload, m)
+		privateBytes, err := ioutil.ReadFile(appConfig.RemotePrivateKeyPath)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		signer, err := ssh.ParsePrivateKey(privateBytes)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		config := &ssh.ClientConfig{
+			User: appConfig.RemoteSSHUser,
+			Auth: []ssh.AuthMethod{
+				ssh.PublicKeys(signer),
+			},
+		}
+		sshClientConn, err := ssh.Dial("tcp", appConfig.RemoteSSHAddr, config)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		type channelOpenForwardMsg struct {
+			raddr string
+			rport uint32
+			laddr string
+			lport uint32
+		}
+		fm := &channelOpenForwardMsg{
+			raddr: "localhost",
+			rport: m.Lport,
+			laddr: "localhost",
+			lport: m.Lport,
+		}
+		channel, reqs, err := conn.Conn.OpenChannel("forwarded-tcpip", ssh.Marshal(fm))
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		go ssh.DiscardRequests(reqs)
+		portListener, err := sshClientConn.Listen("tcp", appConfig.RemoteForwardAddress)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		go func() {
+			for {
+				sshConn, err := portListener.Accept()
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+				// Copy localConn.Reader to sshConn.Writer
+				go func(sshConn net.Conn) {
+					_, err := io.Copy(sshConn, channel)
+					if err != nil {
+						log.Println("io.Copy failed: %v", err)
+						sshConn.Close()
+						return
+					}
+				}(sshConn)
+				// Copy sshConn.Reader to localConn.Writer
+				go func(sshConn net.Conn) {
+					_, err := io.Copy(channel, sshConn)
+					if err != nil {
+						log.Println("io.Copy failed: %v", err)
+						sshConn.Close()
+						return
+					}
+				}(sshConn)
+			}
+		}()
+		req.Reply(true, nil)
+	}
 }
