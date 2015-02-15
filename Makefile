@@ -5,7 +5,7 @@ all:
 	go install
 	cd keymgr; go build
 	cd pelican-server; go build
-
+	cd sshd; go build
 
 debug:
 	go build -gcflags "-N -l"

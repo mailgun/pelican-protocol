@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os/exec"
@@ -30,6 +29,7 @@ import (
 	"unsafe"
 
 	"github.com/kr/pty"
+	pelican "github.com/mailgun/pelican-protocol"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -64,7 +64,7 @@ func (u *Users) PermitClientConnection(clientAddr net.Addr, clientPubKey ssh.Pub
 	pubBytes := ssh.MarshalAuthorizedKey(clientPubKey)
 	strPubBytes := string(pubBytes)
 
-	if strPubBytes == NewAcctPublicKey {
+	if strPubBytes == pelican.GetNewAcctPublicKey() {
 		return true, fmt.Errorf("new-account")
 	}
 
@@ -109,20 +109,8 @@ func main() {
 		PasswordCallback: nil,
 	}
 
-	// Need at least one host key, added with config.AddHostKey()
-
-	// You can generate a keypair with 'ssh-keygen -t rsa'
-	privateBytes, err := ioutil.ReadFile("id_rsa")
-	if err != nil {
-		log.Fatal("Failed to load private key (./id_rsa)")
-	}
-
-	private, err := ssh.ParsePrivateKey(privateBytes)
-	if err != nil {
-		log.Fatal("Failed to parse private key")
-	}
-
-	config.AddHostKey(private)
+	err := GetOrGenServerKey("./host-key-id-rsa", config)
+	panicOn(err)
 
 	// Once a ServerConfig has been configured, connections can be accepted.
 	listener, err := net.Listen("tcp", "0.0.0.0:2200")

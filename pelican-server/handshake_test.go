@@ -10,7 +10,7 @@ import (
 func TestSshHandshake(t *testing.T) {
 	rsa_file := "./id_rsa"
 
-	rsa, err := pelican.GenRsaKeyPair(rsa_file, 4096)
+	rsa, signer, err := pelican.GenRsaKeyPair(rsa_file, 4096)
 	panicOn(err)
 
 	sshd, err := NewSshd(2022, rsa)
@@ -22,7 +22,7 @@ func TestSshHandshake(t *testing.T) {
 	panicOn(err)
 
 	cv.Convey("our pelican-server should accept SSH handshake from ssh clients", t, func() {
-		err := sshcli.Handshake()
+		err := sshcli.Handshake(signer)
 		cv.So(err, cv.ShouldEqual, nil)
 	})
 
