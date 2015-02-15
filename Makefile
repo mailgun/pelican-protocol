@@ -12,6 +12,8 @@ debug:
 
 clean:
 	rm -f *~ 
+	cd keymgr; 	rm -f *~ 
+	cd pelsh; 	rm -f *~ 
 
 dock-bootstrap:
 	docker build -t pel3 .
