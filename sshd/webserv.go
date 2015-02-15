@@ -175,9 +175,11 @@ func (s *WebServer) Start() *WebServer {
 
 func mainExample() {
 	fmt.Printf("staticweb main running.\n")
-	w := NewWebServer("127.0.0.1:7708", &WebConfig{})
+	w := NewWebServer("127.0.0.1:7708", nil)
 	w.Start()
 	select {}
+	// ...
+	w.Stop()
 }
 
 type KeepDebug struct{}
