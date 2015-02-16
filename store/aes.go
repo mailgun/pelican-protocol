@@ -8,7 +8,7 @@ import (
 	"fmt"
 )
 
-func main() {
+func example_main() {
 	originalText := "8 encrypt this golang 123"
 	fmt.Println(originalText)
 
