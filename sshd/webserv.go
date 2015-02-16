@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
-	"os"
-
-	"time"
-
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/rcrowley/go-tigertonic"
 
@@ -131,6 +132,9 @@ func NewWebServer(addr string, cfg *WebConfig) *WebServer {
 		s.cfg = *cfg
 	}
 
+	frontBody, err := ioutil.ReadFile("web/html/anon_or_ident.html")
+	panicOn(err)
+
 	FrontHandler := func(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
@@ -140,13 +144,13 @@ func NewWebServer(addr string, cfg *WebConfig) *WebServer {
 		w.Header().Set("Cache-Control", "no-cache")
 
 		fmt.Fprintf(w, "<html>")
-		title := `cutlass`
+		title := `New server-host-key detected`
 		fmt.Fprintf(w, `<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>%s</title>`, title)
 		s.AddScriptIncludes(w)
 		fmt.Fprintf(w, `</head>`)
-		fmt.Fprintf(w, "<body>\n\n")
-		fmt.Fprintf(w, "[This is the main static body.]\n")
-		fmt.Fprintf(w, "\n</body><html>")
+		io.Copy(w, bytes.NewBuffer(frontBody))
+		fmt.Fprintf(w, "\n<html>")
+
 	}
 
 	s.mux = tigertonic.NewTrieServeMux()
