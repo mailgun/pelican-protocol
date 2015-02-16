@@ -113,6 +113,7 @@ type PelicanServer struct {
 }
 
 type PelSrvCfg struct {
+	PelicanListenIp   string
 	PelicanListenPort int
 	HttpDestIp        string
 	HttpDestPort      int
@@ -154,38 +155,41 @@ func NewPelicanServer(cfg *PelSrvCfg) *PelicanServer {
 
 func (s *PelicanServer) Start() {
 
-	// Once a ServerConfig has been configured, connections can be accepted.
-	listener, err := net.Listen("tcp", "0.0.0.0:2200")
-	if err != nil {
-		log.Fatalf("Failed to listen on 2200 (%s)", err)
-	}
-
-	// Accept all connections
-	log.Print("Listening on 2200...")
-	for {
-		tcpConn, err := listener.Accept()
+	go func() {
+		// Once a ServerConfig has been configured, connections can be accepted.
+		addr := fmt.Sprintf("%s:%d", s.Cfg.PelicanListenIp, s.Cfg.PelicanListenPort)
+		listener, err := net.Listen("tcp", addr)
 		if err != nil {
-			log.Printf("Failed to accept incoming connection (%s)", err)
-			continue
-		}
-		// Before use, a handshake must be performed on the incoming net.Conn.
-		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, s.Sshd)
-		if err != nil {
-			log.Printf("Failed to handshake (%s)", err)
-			continue
+			log.Fatalf("Failed to listen on '%s': (%s)", addr, err)
 		}
 
-		log.Printf("New SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion())
+		// Accept all connections
+		log.Printf("pelican-server sshd component listening on '%s'...", addr)
+		for {
+			tcpConn, err := listener.Accept()
+			if err != nil {
+				log.Printf("Failed to accept incoming connection (%s)", err)
+				continue
+			}
+			// Before use, a handshake must be performed on the incoming net.Conn.
+			sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, s.Sshd)
+			if err != nil {
+				log.Printf("Failed to handshake (%s)", err)
+				continue
+			}
 
-		go processRequests(sshConn, reqs)
+			log.Printf("New SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion())
 
-		// Accept all channels
-		go handleChannels(chans)
-	}
+			go processRequests(sshConn, reqs)
+
+			// Accept all channels
+			go handleChannels(chans)
+		}
+	}()
 }
 
 func (s *PelicanServer) Stop() {
-
+	fmt.Printf("todo: Pelican-Server:Stop() not implimented.\n")
 }
 
 func handleChannels(chans <-chan ssh.NewChannel) {
@@ -379,6 +383,10 @@ func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
 func (s *PelicanServer) SetDefaults(cfg *PelSrvCfg) {
 	if cfg != nil {
 		s.Cfg = *cfg
+	}
+
+	if s.Cfg.PelicanListenIp == "" {
+		s.Cfg.PelicanListenIp = "127.0.0.1"
 	}
 
 	if s.Cfg.PelicanListenPort == 0 {

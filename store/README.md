@@ -1,6 +1,11 @@
 backend storage
 ==============
 
+but encryption at rest: are the data stored on-disk in encrypted format?
+
+in github.com/oleiade/trousseau they might be, yes.
+
+
 camlistore : our eventual target; especially for user's keys.
 User's set of keys should easily fit in memory, so performance/space
 should not be a problem.

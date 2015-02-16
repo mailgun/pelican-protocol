@@ -4,6 +4,7 @@ import (
 	"fmt"
 	cv "github.com/glycerine/goconvey/convey"
 	"github.com/mailgun/pelican-protocol"
+	"io/ioutil"
 	"testing"
 )
 
@@ -12,7 +13,9 @@ func TestClientToServerPortForward(t *testing.T) {
 	// 1. web server
 	//
 	webPort := pelican.GetAvailPort()
-	webAddr := fmt.Sprintf("127.0.0.1:%d", webPort)
+	webIp := "127.0.0.1"
+	webAddr := fmt.Sprintf("%s:%d", webIp, webPort)
+	fmt.Printf("web addr is '%s'\n", webAddr)
 	w := NewWebServer(webAddr, nil)
 	w.Start()
 	defer w.Stop()
@@ -20,32 +23,59 @@ func TestClientToServerPortForward(t *testing.T) {
 	// 2. sshd in front of web server
 	//
 	pelPort := pelican.GetAvailPort()
+	if pelPort == webPort {
+		panic(fmt.Sprintf("port conflict! both web and pelican server on port %d", pelPort))
+	}
 	pelIp := "127.0.0.1"
+	fmt.Printf("pelican-server addr is '%s:%d'\n", pelIp, pelPort)
 
 	peld := NewPelicanServer(&PelSrvCfg{
+		PelicanListenIp:   pelIp,
 		PelicanListenPort: pelPort,
-		HttpDestIp:        pelIp,
+		HttpDestIp:        webIp,
 		HttpDestPort:      webPort,
 	})
 	peld.Start()
+	fmt.Printf("after Start()\n")
 	defer peld.Stop()
 
 	// 3. client makes a new account on the pelical-protocol/sshd server,
 	// gets the server's hostkey, provides the server a client public key.
+	// The client's public key is what lets the server know that it is
+	// the same client returning from before.
+	fmt.Printf("pre known hosts.\n")
 	my_known_hosts_file := "my.known.hosts"
 	pelican.CleanupOldKnownHosts(my_known_hosts_file)
 
 	h := pelican.NewKnownHosts(my_known_hosts_file)
 	defer h.Close()
 
-	newKey := pelican.GetNewAcctPrivateKey()
-	acctId, err := h.SshMakeNewAcct(newKey, pelIp, pelPort)
+	fmt.Printf("before new private key.\n")
+	acctKey := pelican.GetNewAcctPrivateKey()
+	file, err := ioutil.TempFile(".", "temp-key-")
 	panicOn(err)
+	defer file.Close()
+	_, err = file.WriteString(acctKey)
+	panicOn(err)
+	file.Close()
+
+	fmt.Printf("done with recalling the one new account private key. stored in: '%s'\n", file.Name())
+	acctKeyFile := file.Name()
+
+	/* // skip this for now, is make new acct not a new activity??
+
+	acctId, err := h.SshMakeNewAcct(acctKey, pelIp, pelPort)
+	panicOn(err)
+
+	fmt.Printf("done with SshMakeNewAcct(). acctId = '%s'\n", acctId)
+	*/
 
 	// 4. fetch some traffic from the website via the tunnel
 	//
+	acctId := "random account id"
 	localPortToListenOn := pelican.GetAvailPort()
-	out, err := h.SshConnect(acctId, acctKey, dockerip, 22, localPortToListenOn)
+	fmt.Printf("sshConnect will listen on port %d\n", localPortToListenOn)
+	_, err = h.SshConnect(acctId, acctKeyFile, pelIp, pelPort, localPortToListenOn)
 	if err != nil {
 		panic(err)
 	}
