@@ -10,7 +10,7 @@ import (
 func WrapInAsciiArmor(data []byte) ([]byte, error) {
 
 	var out bytes.Buffer
-	w, err := armor.Encode(&out, "PELICAN-PROTOCOL", nil)
+	w, err := armor.Encode(&out, "PELICAN-PROTOCOL-FORMAT", nil)
 	panicOn(err)
 
 	goaln := len(data)
