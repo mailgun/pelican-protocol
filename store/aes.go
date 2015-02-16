@@ -6,10 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"io"
 )
 
-func example_main() {
+func main() {
 	originalText := "8 encrypt this golang 123"
 	fmt.Println(originalText)
 
@@ -54,20 +53,24 @@ func encrypt(passphrase []byte, plaintext []byte) []byte {
 		panic(err)
 	}
 
-	// The IV needs to be unique, but not secure. Therefore it's common to
-	// include it at the beginning of the ciphertext.
-	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
 		panic(err)
 	}
 
-	stream := cipher.NewCFBEncrypter(block, iv)
-	stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
+	//fmt.Printf("nz = %d\n", gcm.NonceSize()) // 12
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		panic(err)
+	}
+
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+	full := append(nonce, ciphertext...)
 
 	// convert to base64
-	ret := make([]byte, base64.URLEncoding.EncodedLen(len(ciphertext)))
-	base64.URLEncoding.Encode(ret, ciphertext)
+	ret := make([]byte, base64.URLEncoding.EncodedLen(len(full)))
+	base64.URLEncoding.Encode(ret, full)
 	return ret
 }
 
@@ -81,25 +84,30 @@ func decrypt(passphrase []byte, cryptoText []byte) []byte {
 	if err != nil {
 		panic(err)
 	}
-	ciphertext := dbuf[:n]
+	full := dbuf[:n]
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		panic(err)
 	}
 
-	// The IV needs to be unique, but not secure. Therefore it's common to
-	// include it at the beginning of the ciphertext.
-	if len(ciphertext) < aes.BlockSize {
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic(err)
+	}
+
+	nz := gcm.NonceSize()
+	if len(full) < nz {
 		panic("ciphertext too short")
 	}
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
 
-	stream := cipher.NewCFBDecrypter(block, iv)
+	nonce := full[:nz]
+	ciphertext := full[nz:]
 
-	// XORKeyStream can work in-place if the two arguments are the same.
-	stream.XORKeyStream(ciphertext, ciphertext)
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		panic(err)
+	}
 
-	return ciphertext
+	return plain
 }
