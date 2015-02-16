@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
-	"strings"
 	"time"
 )
+
+var DockerHubTestImage string = "jaten/pelican04"
 
 func StartDockerImage(image string) {
 	cmd := exec.Command("/usr/bin/docker", "run", image, "/sbin/my_init")
@@ -40,6 +41,7 @@ func StartDockerImage(image string) {
 	fmt.Printf("StartDockerImage() done.\n")
 }
 
+/*
 func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 
 	dockerip := getDockerIP()
@@ -61,6 +63,7 @@ func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 	//return exec.Command("make", fmt.Sprintf("ARGS='%s'", strings.Join(cmd, " ")), "sshroot").CombinedOutput()
 	return out, err
 }
+*/
 
 func TrimRightNewline(slice []byte) []byte {
 	n := len(slice)

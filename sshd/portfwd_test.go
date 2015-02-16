@@ -10,6 +10,7 @@ import (
 func TestClientToServerPortForward(t *testing.T) {
 
 	// 1. web server
+	//
 	webPort := pelican.GetAvailPort()
 	webAddr := fmt.Sprintf("127.0.0.1:%d", webPort)
 	w := NewWebServer(webAddr, nil)
@@ -17,6 +18,7 @@ func TestClientToServerPortForward(t *testing.T) {
 	defer w.Stop()
 
 	// 2. ssd in front of web server
+	//
 	pelPort := pelican.GetAvailPort()
 	pelIp := "127.0.0.1"
 
@@ -36,15 +38,23 @@ func TestClientToServerPortForward(t *testing.T) {
 	h := pelican.NewKnownHosts(my_known_hosts_file)
 	defer h.Close()
 
-	newkey := pelican.GetNewAcctPrivateKey()
-	err := h.SshMakeNewAcct(newkey, pelIp, pelPort)
+	newKey := pelican.GetNewAcctPrivateKey()
+	acctId, err := h.SshMakeNewAcct(newKey, pelIp, pelPort)
 	panicOn(err)
 
 	// 4. fetch some traffic from the website via the tunnel
+	//
+	localPortToListenOn := pelican.GetAvailPort()
+	out, err := h.SshConnect(acctId, acctKey, dockerip, 22, localPortToListenOn)
+	if err != nil {
+		panic(err)
+	}
 
-	cv.Convey("When the client tunnels bidirectional http traffic to the server, the server should forward that traffic to the local website on port 80", t, func() {
+	cv.Convey("When the client tunnels bidirectional http traffic to the server, the server should forward that traffic to the local webserver", t, func() {
 
-		fmt.Printf("")
+		page := MyCurl(fmt.Sprintf("http://127.0.0.1:%d", localPortToListenOn))
+		cv.So(page, cv.ShouldContainSubstring, "[This is the main static body.]")
+
 	})
 
 }

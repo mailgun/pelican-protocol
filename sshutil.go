@@ -1,123 +1,22 @@
 package pelican
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"reflect"
 	"strings"
-
-	"crypto/sha256"
 
 	//"code.google.com/p/go.crypto/ssh"
 	"golang.org/x/crypto/ssh"
 )
 
-type KnownHosts struct {
-	Hosts     map[string]*ServerPubKey
-	curHost   *ServerPubKey
-	curStatus HostState
-
-	// FilepathPrefix doesn't have the .json.snappy suffix on it.
-	FilepathPrefix string
-
-	// PersistFormat doubles as the file suffix as well as
-	// the format indicator
-	PersistFormat string
-}
-
-type ServerPubKey struct {
-	Hostname     string
-	HumanKey     string // serialized and readable version of Key, the key for Hosts map in KnownHosts.
-	ServerBanned bool
-	//OurAcctKeyPair ssh.Signer
-
-	remote net.Addr      // unmarshalled form of Hostname
-	key    ssh.PublicKey // unmarshalled form of HumanKey
-}
-
 func defaultFileFormat() string {
 	// either ".gob.snappy" or ".json.snappy"
 	return ".json.snappy"
 	//return ".gob.snappy"
-}
-
-// filepathPrefix does not include the PersistFormat suffix
-func NewKnownHosts(filepathPrefix string) *KnownHosts {
-
-	h := &KnownHosts{
-		PersistFormat: defaultFileFormat(),
-	}
-
-	fn := filepathPrefix + h.PersistFormat
-
-	if FileExists(fn) {
-		fmt.Printf("fn '%s' exists in NewKnownHosts()\n", fn)
-
-		switch h.PersistFormat {
-		case ".json.snappy":
-			err := h.readJsonSnappy(fn)
-			panicOn(err)
-		case ".gob.snappy":
-			err := h.readGobSnappy(fn)
-			panicOn(err)
-		default:
-			panic(fmt.Sprintf("unknown persistence format", h.PersistFormat))
-		}
-
-		fmt.Printf("after reading from file, h = '%#v'\n", h)
-
-	} else {
-		fmt.Printf("fn '%s' does not exist already in NewKnownHosts()\n", fn)
-		fmt.Printf("making h.Hosts in NewKnownHosts()\n")
-		h.Hosts = make(map[string]*ServerPubKey)
-	}
-	h.FilepathPrefix = filepathPrefix
-
-	return h
-}
-
-func KnownHostsEqual(a, b *KnownHosts) (bool, error) {
-	for k, v := range a.Hosts {
-		v2, ok := b.Hosts[k]
-		if !ok {
-			return false, fmt.Errorf("KnownHostsEqual detected difference at key '%s': a.Hosts had this key, but b.Hosts did not have this key", k)
-		}
-		if v.HumanKey != v2.HumanKey {
-			return false, fmt.Errorf("KnownHostsEqual detected difference at key '%s': a.HumanKey = '%s' but b.HumanKey = '%s'", v.HumanKey, v2.HumanKey)
-		}
-		if v.Hostname != v2.Hostname {
-			return false, fmt.Errorf("KnownHostsEqual detected difference at key '%s': a.Hostname = '%s' but b.Hostname = '%s'", v.Hostname, v2.Hostname)
-		}
-		if v.ServerBanned != v2.ServerBanned {
-			return false, fmt.Errorf("KnownHostsEqual detected difference at key '%s': a.ServerBanned = '%s' but b.ServerBanned = '%s'", v.ServerBanned, v2.ServerBanned)
-		}
-	}
-	for k := range b.Hosts {
-		_, ok := a.Hosts[k]
-		if !ok {
-			return false, fmt.Errorf("KnownHostsEqual detected difference at key '%s': b.Hosts had this key, but a.Hosts did not have this key", k)
-		}
-	}
-	return true, nil
-}
-
-func (h *KnownHosts) Sync() {
-	fn := h.FilepathPrefix + h.PersistFormat
-	switch h.PersistFormat {
-	case ".json.snappy":
-		err := h.saveJsonSnappy(fn)
-		panicOn(err)
-	case ".gob.snappy":
-		err := h.saveGobSnappy(fn)
-		panicOn(err)
-	default:
-		panic(fmt.Sprintf("unknown persistence format", h.PersistFormat))
-	}
-}
-
-func (h *KnownHosts) Close() {
-	h.Sync()
 }
 
 const AddIfNotKnown = true
@@ -187,7 +86,7 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 	return Unknown, nil, record
 }
 
-func (h *KnownHosts) SshConnect(username string, keypath string, host string, port int, command string) ([]byte, error) {
+func (h *KnownHosts) SshConnect(username string, keypath string, host string, port int, localPortToListenOn int) ([]byte, error) {
 
 	// the callback just after key-exchange to validate server is here
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -196,6 +95,9 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 
 		hostStatus, err, spubkey := h.HostAlreadyKnown(hostname, remote, key, pubBytes, AddIfNotKnown)
 		fmt.Printf("in hostKeyCallback(), hostStatus: '%s', hostname='%s', remote='%s', key.Type='%s'  key.Marshal='%s'\n", hostStatus, hostname, remote, key.Type(), pubBytes)
+
+		fmt.Printf("\n\n freezing here to see what packets exchanged.\n")
+		select {}
 
 		h.curStatus = hostStatus
 		h.curHost = spubkey
@@ -241,14 +143,52 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		panic(fmt.Sprintf("sshConnect() failed at dial to '%s': '%s' ", hostport, err.Error()))
 	}
 
-	channel, reqs, err := sshClientConn.Conn.OpenChannel("forwarded-tcpip", nil)
+	channelToSshd, reqs, err := sshClientConn.Conn.OpenChannel("forwarded-tcpip", nil)
 	panicOn(err)
 
-	fmt.Printf("OpenChannel() completed without error. channel: '%#v'\n", channel)
+	fmt.Printf("OpenChannel() completed without error. channelToSshd: '%#v'\n", channelToSshd)
 
 	go ssh.DiscardRequests(reqs)
 
-	////////////////////////////////
+	// make a local server listening on localPortToListenOn
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPortToListenOn))
+	if err != nil {
+		panic(err) // todo handle error
+	}
+	for {
+		fromBrowser, err := ln.Accept()
+		if err != nil {
+			panic(err) // todo handle error
+		}
+
+		// here is the heart of the ssh-secured tunnel functionality:
+		// we start the two shovels that keep traffic flowing
+		// in both directions from browser over to sshd:
+		// reads on fromBrowser are forwarded to channelToSshd;
+		// reads on channelToSshd are forwarded to fromBrowser.
+
+		// Copy channelToSshd.Reader to fromBrowser.Writer
+		go func() {
+			_, err := io.Copy(fromBrowser, channelToSshd)
+			if err != nil {
+				fmt.Printf("io.Copy failed: %v\n", err)
+				fromBrowser.Close()
+				channelToSshd.Close()
+				return
+			}
+		}()
+
+		// Copy fromBrowser.Reader to channelToSshd.Writer
+		go func() {
+			_, err := io.Copy(channelToSshd, fromBrowser)
+			if err != nil {
+				fmt.Printf("io.Copy failed: %v\n", err)
+				fromBrowser.Close()
+				channelToSshd.Close()
+				return
+			}
+		}()
+	}
 
 	return []byte{}, nil
 }

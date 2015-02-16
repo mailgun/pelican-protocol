@@ -115,7 +115,7 @@ type PelicanServer struct {
 type PelSrvCfg struct {
 	PelicanListenPort int
 	HttpDestIp        string
-	HttpDestPort      string
+	HttpDestPort      int
 }
 
 func NewPelicanServer(cfg *PelSrvCfg) *PelicanServer {
@@ -184,6 +184,10 @@ func (s *PelicanServer) Start() {
 	}
 }
 
+func (s *PelicanServer) Stop() {
+
+}
+
 func handleChannels(chans <-chan ssh.NewChannel) {
 	for newChannel := range chans {
 		go handleChannel(newChannel)
@@ -247,6 +251,7 @@ func handleChannel(newChannel ssh.NewChannel) {
 		if err != nil {
 			fmt.Printf("io.Copy failed: %v\n", err)
 			fromClient.Close()
+			localConn.Close()
 			return
 		}
 	}()
@@ -257,6 +262,7 @@ func handleChannel(newChannel ssh.NewChannel) {
 		if err != nil {
 			fmt.Printf("io.Copy failed: %v\n", err)
 			fromClient.Close()
+			localConn.Close()
 			return
 		}
 	}()

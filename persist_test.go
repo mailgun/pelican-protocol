@@ -1,10 +1,12 @@
 package pelican
 
+/*
 import (
 	"fmt"
 	cv "github.com/glycerine/goconvey/convey"
 	"testing"
 )
+
 
 func TestKnownHostsSaveAndRestoreWork(t *testing.T) {
 	StopAllDockers()
@@ -37,3 +39,4 @@ func TestKnownHostsSaveAndRestoreWork(t *testing.T) {
 	})
 
 }
+*/
