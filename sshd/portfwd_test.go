@@ -17,7 +17,7 @@ func TestClientToServerPortForward(t *testing.T) {
 	w.Start()
 	defer w.Stop()
 
-	// 2. ssd in front of web server
+	// 2. sshd in front of web server
 	//
 	pelPort := pelican.GetAvailPort()
 	pelIp := "127.0.0.1"

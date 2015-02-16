@@ -96,9 +96,6 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		hostStatus, err, spubkey := h.HostAlreadyKnown(hostname, remote, key, pubBytes, AddIfNotKnown)
 		fmt.Printf("in hostKeyCallback(), hostStatus: '%s', hostname='%s', remote='%s', key.Type='%s'  key.Marshal='%s'\n", hostStatus, hostname, remote, key.Type(), pubBytes)
 
-		fmt.Printf("\n\n freezing here to see what packets exchanged.\n")
-		select {}
-
 		h.curStatus = hostStatus
 		h.curHost = spubkey
 
