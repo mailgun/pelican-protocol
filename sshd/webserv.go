@@ -132,10 +132,13 @@ func NewWebServer(addr string, cfg *WebConfig) *WebServer {
 		s.cfg = *cfg
 	}
 
-	frontBody, err := ioutil.ReadFile("web/html/anon_or_ident.html")
-	panicOn(err)
+	//	frontBody, err := ioutil.ReadFile("web/html/anon_or_ident.html")
+	//	panicOn(err)
 
 	FrontHandler := func(w http.ResponseWriter, r *http.Request) {
+
+		frontBody, err := ioutil.ReadFile("web/html/anon_or_ident.html")
+		panicOn(err)
 
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 		//browserCacheSeconds := 0
@@ -144,7 +147,7 @@ func NewWebServer(addr string, cfg *WebConfig) *WebServer {
 		w.Header().Set("Cache-Control", "no-cache")
 
 		fmt.Fprintf(w, "<html>")
-		title := `New server-host-key detected`
+		title := `Pelican-protocol on guard: New server-host-key detected`
 		fmt.Fprintf(w, `<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>%s</title>`, title)
 		s.AddScriptIncludes(w)
 		fmt.Fprintf(w, `</head>`)
