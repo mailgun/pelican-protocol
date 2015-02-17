@@ -19,8 +19,7 @@ func TestShovelStops(t *testing.T) {
 		s.Start(w, r)
 		<-s.Ready
 		time.Sleep(time.Millisecond)
-		close(s.ReqStop)
-		<-s.Done
+		s.Stop()
 		cv.So(true, cv.ShouldResemble, true) // we should get here.
 	})
 }

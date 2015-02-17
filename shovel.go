@@ -33,7 +33,6 @@ func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser) {
 			r.Close()
 			w.Close()
 			close(s.Done)
-			fmt.Printf("\n done with shovel goroutine.\n")
 		}()
 		close(s.Ready)
 		_, err := io.Copy(w, r)
@@ -47,4 +46,42 @@ func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser) {
 		fmt.Printf("\n ReqStop detected.\n")
 		r.Close() // causes io.Copy to finish
 	}()
+}
+
+// stop the shovel goroutine. returns only once the goroutine is done.
+func (s *Shovel) Stop() {
+	close(s.ReqStop)
+	<-s.Done
+}
+
+// a ShovelPair manages the forwarding of a bidirectional
+// channel, such as that in forwarding an ssh connection.
+type ShovelPair struct {
+	AB      *Shovel
+	BA      *Shovel
+	Done    chan bool
+	ReqStop chan bool
+}
+
+// make a new ShovelPair
+func NewShovelPair() *ShovelPair {
+	return &ShovelPair{
+		AB:      NewShovel(),
+		BA:      NewShovel(),
+		Done:    make(chan bool),
+		ReqStop: make(chan bool),
+	}
+}
+
+// Start the pair of shovels
+func (s *ShovelPair) Start(a io.ReadWriteCloser, b io.ReadWriteCloser) {
+	s.AB.Start(a, b)
+	<-s.AB.Ready
+	s.BA.Start(b, a)
+	<-s.BA.Ready
+}
+
+func (s *ShovelPair) Stop() {
+	s.AB.Stop()
+	s.BA.Stop()
 }
