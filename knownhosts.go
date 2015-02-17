@@ -6,6 +6,9 @@ import (
 	"net"
 )
 
+// KnownHosts represents in Hosts a hash map of host identifier (ip or name)
+// and the corresponding public key for the server. It corresponds to the
+// ~/.ssh/known_hosts file.
 type KnownHosts struct {
 	Hosts     map[string]*ServerPubKey
 	curHost   *ServerPubKey
@@ -19,9 +22,13 @@ type KnownHosts struct {
 	PersistFormat string
 }
 
+// ServerPublicKey stores the RSA public keys for a particular known server. This
+// structure is stored in KnownHosts.Hosts.
 type ServerPubKey struct {
-	Hostname     string
-	HumanKey     string // serialized and readable version of Key, the key for Hosts map in KnownHosts.
+	Hostname string
+
+	// HumanKey is a serialized and readable version of Key, the key for Hosts map in KnownHosts.
+	HumanKey     string
 	ServerBanned bool
 	//OurAcctKeyPair ssh.Signer
 
@@ -29,7 +36,10 @@ type ServerPubKey struct {
 	key    ssh.PublicKey // unmarshalled form of HumanKey
 }
 
-// filepathPrefix does not include the PersistFormat suffix
+// NewKnownHosts creats a new KnownHosts structure. filepathPrefix does not include the
+//  PersistFormat suffix. If filepathPrefix + defaultFileFormat() exists as a
+// file on disk, then we read the contents of that file into the new KnownHosts.
+// We note the filepathPrefix for future saves back to that file as well.
 func NewKnownHosts(filepathPrefix string) *KnownHosts {
 
 	h := &KnownHosts{
@@ -64,6 +74,7 @@ func NewKnownHosts(filepathPrefix string) *KnownHosts {
 	return h
 }
 
+// KnownHostsEqual compares two instances of KnownHosts structures for equality.
 func KnownHostsEqual(a, b *KnownHosts) (bool, error) {
 	for k, v := range a.Hosts {
 		v2, ok := b.Hosts[k]
@@ -89,6 +100,7 @@ func KnownHostsEqual(a, b *KnownHosts) (bool, error) {
 	return true, nil
 }
 
+// Sync writes the contents of the KnownHosts structure to the file h.FilepathPrefix + h.PersistFormat.
 func (h *KnownHosts) Sync() {
 	fn := h.FilepathPrefix + h.PersistFormat
 	switch h.PersistFormat {
@@ -103,6 +115,8 @@ func (h *KnownHosts) Sync() {
 	}
 }
 
+// Close cleans up and prepares for shutdown. It calls h.Sync() to write
+// the state to disk.
 func (h *KnownHosts) Close() {
 	h.Sync()
 }
