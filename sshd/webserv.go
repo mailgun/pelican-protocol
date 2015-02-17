@@ -222,5 +222,6 @@ func (s *WebServer) AddScriptIncludes(w http.ResponseWriter) {
         text-align: center;
       }
       </style>
+     <link rel="stylesheet" type="text/css" href="https://eafdbc63c97ce6bec9ef-b0a668e5876bef6fe25684caf71db405.ssl.cf1.rackcdn.com/v1-latest/canon.min.css">
      `)
 }
