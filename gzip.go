@@ -10,6 +10,8 @@ import (
 	"compress/gzip"
 )
 
+// ReadGzippedFile reads from path gzipped, returning
+// the uncompressed bytes.
 func ReadGzippedFile(gzipped string) ([]byte, error) {
 	f, err := os.Open(gzipped)
 	if err != nil {
@@ -31,6 +33,9 @@ func ReadGzippedFile(gzipped string) ([]byte, error) {
 	return bytes, err
 }
 
+// UnGzipFile reads the file gzipped into memory, and
+// the writes it back out to disk in file ungzipped without
+// the compression.
 func UnGzipFile(gzipped, ungzipped string) error {
 
 	bytes, err := ReadGzippedFile(gzipped)
@@ -46,6 +51,9 @@ func UnGzipFile(gzipped, ungzipped string) error {
 	return err
 }
 
+// GzipFile reads the file in path ungzipped, then
+// writes it back out to path gzipped in compressed
+// format.
 func GzipFile(ungzipped, gzipped string) error {
 
 	by, err := ioutil.ReadFile(ungzipped)
@@ -57,6 +65,7 @@ func GzipFile(ungzipped, gzipped string) error {
 	return err
 }
 
+// WriteGzippedFile writes the bytes in by to the file named by gzipped.
 func WriteGzippedFile(by []byte, gzipped string) error {
 	fn := gzipped + ".temp"
 	var file *os.File
