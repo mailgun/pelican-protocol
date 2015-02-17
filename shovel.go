@@ -30,27 +30,30 @@ func NewShovel() *Shovel {
 func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser) {
 	go func() {
 		defer func() {
-			r.Close()
-			w.Close()
 			close(s.Done)
 		}()
 		close(s.Ready)
 		_, err := io.Copy(w, r)
 		if err != nil {
-			fmt.Printf("shovel, io.Copy failed: %v\n", err)
+			panic(fmt.Sprintf("in Shovel, io.Copy failed: %v\n", err))
 			return
 		}
 	}()
 	go func() {
 		<-s.ReqStop
-		fmt.Printf("\n ReqStop detected.\n")
 		r.Close() // causes io.Copy to finish
+		w.Close()
 	}()
 }
 
 // stop the shovel goroutine. returns only once the goroutine is done.
 func (s *Shovel) Stop() {
-	close(s.ReqStop)
+	// avoid double closing ReqStop here
+	select {
+	case <-s.ReqStop:
+	default:
+		close(s.ReqStop)
+	}
 	<-s.Done
 }
 
@@ -61,6 +64,7 @@ type ShovelPair struct {
 	BA      *Shovel
 	Done    chan bool
 	ReqStop chan bool
+	Ready   chan bool
 }
 
 // make a new ShovelPair
@@ -70,6 +74,7 @@ func NewShovelPair() *ShovelPair {
 		BA:      NewShovel(),
 		Done:    make(chan bool),
 		ReqStop: make(chan bool),
+		Ready:   make(chan bool),
 	}
 }
 
@@ -79,6 +84,17 @@ func (s *ShovelPair) Start(a io.ReadWriteCloser, b io.ReadWriteCloser) {
 	<-s.AB.Ready
 	s.BA.Start(b, a)
 	<-s.BA.Ready
+	close(s.Ready)
+
+	// if one stops, shut down the other
+	go func() {
+		select {
+		case <-s.AB.Done:
+			s.BA.Stop()
+		case <-s.BA.Done:
+			s.AB.Stop()
+		}
+	}()
 }
 
 func (s *ShovelPair) Stop() {

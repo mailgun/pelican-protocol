@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net"
 	"reflect"
 	"strings"
@@ -182,33 +181,37 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		// reads on fromBrowser are forwarded to channelToSshd;
 		// reads on channelToSshd are forwarded to fromBrowser.
 
-		// Copy channelToSshd.Reader to fromBrowser.Writer
-		go func(fromBrower io.WriteCloser, channelToSshd io.ReadCloser) {
-			fmt.Printf("\n sshutil: starting Copy channelToSshd.Reader to fromBrowser.Writer\n")
-			_, err := io.Copy(fromBrowser, channelToSshd)
-			if err != nil {
-				fmt.Printf("io.Copy failed: %v\n", err)
-				fromBrowser.Close()
-				channelToSshd.Close()
-				fmt.Printf("\n sshutil: returning from Copy channelToSshd.Reader to fromBrowser.Writer\n")
-				return
-			}
-		}(fromBrowser, channelToSshd)
+		sp := NewShovelPair()
+		sp.Start(fromBrowser, channelToSshd)
 
-		// Copy fromBrowser.Reader to channelToSshd.Writer
-		go func() {
-			fmt.Printf("\n sshutil: starting Copy fromBrowser.Reader to channelToSshd.Writer\n")
-			_, err := io.Copy(channelToSshd, fromBrowser)
-			if err != nil {
-				fmt.Printf("io.Copy failed: %v\n", err)
-				fromBrowser.Close()
-				channelToSshd.Close()
-				fmt.Printf("\n sshutil: returning from Copy fromBrowser.Reader to channelToSshd.Writer\n")
-				return
-			}
-		}()
+		/*
+			// Copy channelToSshd.Reader to fromBrowser.Writer
+			go func(fromBrower io.WriteCloser, channelToSshd io.ReadCloser) {
+				fmt.Printf("\n sshutil: starting Copy channelToSshd.Reader to fromBrowser.Writer\n")
+				_, err := io.Copy(fromBrowser, channelToSshd)
+				if err != nil {
+					fmt.Printf("io.Copy failed: %v\n", err)
+					fromBrowser.Close()
+					channelToSshd.Close()
+					fmt.Printf("\n sshutil: returning from Copy channelToSshd.Reader to fromBrowser.Writer\n")
+					return
+				}
+			}(fromBrowser, channelToSshd)
+
+			// Copy fromBrowser.Reader to channelToSshd.Writer
+			go func() {
+				fmt.Printf("\n sshutil: starting Copy fromBrowser.Reader to channelToSshd.Writer\n")
+				_, err := io.Copy(channelToSshd, fromBrowser)
+				if err != nil {
+					fmt.Printf("io.Copy failed: %v\n", err)
+					fromBrowser.Close()
+					channelToSshd.Close()
+					fmt.Printf("\n sshutil: returning from Copy fromBrowser.Reader to channelToSshd.Writer\n")
+					return
+				}
+			}()
+		*/
 	}
-
 	return []byte{}, nil
 }
 

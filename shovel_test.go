@@ -11,10 +11,10 @@ func TestShovelStops(t *testing.T) {
 
 	cv.Convey("a shovel should stop when requested", t, func() {
 
-		s := NewShovel()
-		r, err := os.Open("/dev/null")
+		s := NewShovelPair()
+		r, err := os.OpenFile("/dev/null", os.O_RDWR, 0600)
 		panicOn(err)
-		w, err := os.Open("/dev/null")
+		w, err := os.OpenFile("/dev/null", os.O_RDWR, 0600)
 		panicOn(err)
 		s.Start(w, r)
 		<-s.Ready
