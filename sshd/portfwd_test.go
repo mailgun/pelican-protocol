@@ -4,7 +4,6 @@ import (
 	"fmt"
 	cv "github.com/glycerine/goconvey/convey"
 	"github.com/mailgun/pelican-protocol"
-	"io/ioutil"
 	"testing"
 )
 
@@ -51,16 +50,11 @@ func TestClientToServerPortForward(t *testing.T) {
 	defer h.Close()
 
 	fmt.Printf("before new private key.\n")
-	acctKey := pelican.GetNewAcctPrivateKey()
-	file, err := ioutil.TempFile(".", "temp-key-")
+	privKeyFile := "temp-2048-key"
+	_, _, err := pelican.GenRsaKeyPair(privKeyFile, 2048)
 	panicOn(err)
-	defer file.Close()
-	_, err = file.WriteString(acctKey)
-	panicOn(err)
-	file.Close()
 
-	fmt.Printf("done with recalling the one new account private key. stored in: '%s'\n", file.Name())
-	acctKeyFile := file.Name()
+	fmt.Printf("done with recalling the one new account private key. stored in: '%s'\n", privKeyFile)
 
 	/* // skip this for now, is make new acct not a new activity??
 
@@ -72,10 +66,10 @@ func TestClientToServerPortForward(t *testing.T) {
 
 	// 4. fetch some traffic from the website via the tunnel
 	//
-	acctId := "random account id"
+	acctId := "newacct"
 	localPortToListenOn := pelican.GetAvailPort()
 	fmt.Printf("sshConnect will listen on port %d\n", localPortToListenOn)
-	_, err = h.SshConnect(acctId, acctKeyFile, pelIp, pelPort, localPortToListenOn)
+	_, err = h.SshConnect(acctId, privKeyFile, pelIp, pelPort, localPortToListenOn)
 	if err != nil {
 		panic(err)
 	}

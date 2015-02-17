@@ -46,16 +46,19 @@ func (s HostState) String() string {
 func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.PublicKey, pubBytes []byte, addIfNotKnown bool) (HostState, error, *ServerPubKey) {
 	strPubBytes := string(pubBytes)
 
-	fmt.Printf("\n in HostAlreadyKnonw...starting.\n")
+	fmt.Printf("\n in HostAlreadyKnown... starting.\n")
 
 	record, ok := h.Hosts[strPubBytes]
 	if ok {
 		if record.ServerBanned {
-			return Banned, fmt.Errorf("the key '%s' has been marked as banned.", strPubBytes), record
+			err := fmt.Errorf("the key '%s' has been marked as banned.", strPubBytes)
+			fmt.Printf("\n in HostAlreadyKnown, returning Banned: '%s'\n", err)
+			return Banned, err, record
 		}
 
 		if strings.HasPrefix(hostname, "localhost") || strings.HasPrefix(hostname, "127.0.0.1") {
 			// no host checking when coming from localhost
+			fmt.Printf("\n in HostAlreadyKnown, no host checking when coming from localhost, returning KnownOK\n")
 			return KnownOK, nil, record
 		}
 		if record.Hostname != hostname {
@@ -68,6 +71,7 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 			fmt.Printf("\n in HostAlreadyKnown, returning KnownRecordMismatch: '%s'", err)
 			return KnownRecordMismatch, err, record
 		}
+		fmt.Printf("\n in HostAlreadyKnown, returning KnownOK.\n")
 		return KnownOK, nil, record
 	}
 
@@ -83,6 +87,7 @@ func (h *KnownHosts) HostAlreadyKnown(hostname string, remote net.Addr, key ssh.
 		h.Sync()
 	}
 
+	fmt.Printf("\n in HostAlreadyKnown, returning Unknown.\n")
 	return Unknown, nil, record
 }
 
@@ -100,10 +105,12 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		h.curHost = spubkey
 
 		if hostStatus == Banned {
+			fmt.Printf("in hostKeyCallback(), hostStatus is Banned, returning error: banned server.\n")
 			return fmt.Errorf("banned server")
 		}
 
 		// super lenient for the moment.
+		fmt.Printf("in hostKeyCallback(), returning nil in super lenient accept most everything at the moment policy.\n")
 		err = nil
 		return err
 		/*
@@ -140,23 +147,26 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		panic(fmt.Sprintf("sshConnect() failed at dial to '%s': '%s' ", hostport, err.Error()))
 	}
 
-	channelToSshd, reqs, err := sshClientConn.Conn.OpenChannel("forwarded-tcpip", nil)
+	channelToSshd, reqs, err := sshClientConn.Conn.OpenChannel("direct-tcpip", nil)
 	panicOn(err)
 
-	fmt.Printf("OpenChannel() completed without error. channelToSshd: '%#v'\n", channelToSshd)
+	fmt.Printf("sshutil: OpenChannel() completed without error. channelToSshd: '%#v'\n", channelToSshd)
 
 	go ssh.DiscardRequests(reqs)
 
 	// make a local server listening on localPortToListenOn
+	fmt.Printf("sshutil: about to listen on local port %d\n", localPortToListenOn)
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPortToListenOn))
 	if err != nil {
 		panic(err) // todo handle error
 	}
 	for {
+		fmt.Printf("sshutil: about to accept on local port %d\n", localPortToListenOn)
 		fromBrowser, err := ln.Accept()
 		if err != nil {
 			panic(err) // todo handle error
 		}
+		fmt.Printf("sshutil: accepted connection on local port %d\n", localPortToListenOn)
 
 		// here is the heart of the ssh-secured tunnel functionality:
 		// we start the two shovels that keep traffic flowing
@@ -166,22 +176,26 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 
 		// Copy channelToSshd.Reader to fromBrowser.Writer
 		go func() {
+			fmt.Printf("\n sshutil: starting Copy channelToSshd.Reader to fromBrowser.Writer\n")
 			_, err := io.Copy(fromBrowser, channelToSshd)
 			if err != nil {
 				fmt.Printf("io.Copy failed: %v\n", err)
 				fromBrowser.Close()
 				channelToSshd.Close()
+				fmt.Printf("\n sshutil: returning from Copy channelToSshd.Reader to fromBrowser.Writer\n")
 				return
 			}
 		}()
 
 		// Copy fromBrowser.Reader to channelToSshd.Writer
 		go func() {
+			fmt.Printf("\n sshutil: starting Copy fromBrowser.Reader to channelToSshd.Writer\n")
 			_, err := io.Copy(channelToSshd, fromBrowser)
 			if err != nil {
 				fmt.Printf("io.Copy failed: %v\n", err)
 				fromBrowser.Close()
 				channelToSshd.Close()
+				fmt.Printf("\n sshutil: returning from Copy fromBrowser.Reader to channelToSshd.Writer\n")
 				return
 			}
 		}()

@@ -62,7 +62,6 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 	// to sign the hmac should be preserved as long as the service is
 	// alive, since if you loose it none of the account names can
 	// be validated.
-
 	secretServerId, err := FetchSecretIdForService(".secret_id_for_service")
 	panicOn(err)
 	hmac := Sha1HMAC(pubBytes, []byte(secretServerId))
@@ -182,7 +181,7 @@ func (s *PelicanServer) Start() {
 
 			go processRequests(sshConn, reqs)
 
-			// Accept all channels
+			// Accept all channels, even if we Reject all but direct-tcpip.
 			go handleChannels(chans)
 		}
 	}()
@@ -200,20 +199,22 @@ func handleChannels(chans <-chan ssh.NewChannel) {
 
 func handleChannel(newChannel ssh.NewChannel) {
 
-	fmt.Printf("\n in handleChannle() with channel type = '%s'\n", newChannel.ChannelType())
+	fmt.Printf("\n in handleChannel() with channel type = '%s'\n", newChannel.ChannelType())
+
+	// "direct-tcpip" is client -> server; "forwarded-tcpip" channel types is -R, server -> client
+	t := newChannel.ChannelType()
+	if t != "direct-tcpip" {
+		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("only direct-tcpip allowed. channel of type '%s' not allowed.", t))
+		return
+	}
 
 	// setup socket to forward this connection to port 80
 	timeout := 5 * time.Second
 	port := 80
-	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), timeout)
+	ip := "127.0.0.1"
+	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), timeout)
 	if err != nil {
-		newChannel.Reject(ssh.ConnectionFailed, fmt.Sprintf("failed to connect to server port %d: %s", port, err))
-		return
-	}
-
-	// "direct-tcpip" is client -> server; "forwarded-tcpip" channel types is -R, server -> client
-	if t := newChannel.ChannelType(); t != "direct-tcpip" {
-		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %s", t))
+		newChannel.Reject(ssh.ConnectionFailed, fmt.Sprintf("failed to connect to server '%s' at port %d: %s", ip, port, err))
 		return
 	}
 
@@ -251,22 +252,26 @@ func handleChannel(newChannel ssh.NewChannel) {
 
 	// Copy localConn.Reader to fromClient.Writer
 	go func() {
+		fmt.Printf("\n starting sshd Copy to fromClient from localConn\n")
 		_, err := io.Copy(fromClient, localConn)
 		if err != nil {
 			fmt.Printf("io.Copy failed: %v\n", err)
 			fromClient.Close()
 			localConn.Close()
+			fmt.Printf("\n returning from sshd Copy to fromClient from localConn\n")
 			return
 		}
 	}()
 
 	// Copy fromClient.Reader to localConn.Writer
 	go func() {
+		fmt.Printf("\n starting sshd Copy to localConn from fromClient\n")
 		_, err := io.Copy(localConn, fromClient)
 		if err != nil {
 			fmt.Printf("io.Copy failed: %v\n", err)
 			fromClient.Close()
 			localConn.Close()
+			fmt.Printf("\n returning from sshd Copy to localConn from fromClient\n")
 			return
 		}
 	}()
@@ -331,6 +336,8 @@ func handleChannel(newChannel ssh.NewChannel) {
 	   		}
 	   	}()
 	*/
+
+	fmt.Printf("\n sshd: returning from handleChannel() for channel type '%s'.\n", t)
 }
 
 func chomp(b []byte) []byte {
@@ -378,6 +385,8 @@ func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
 
 		req.Reply(true, nil)
 	}
+
+	fmt.Printf("\n returning from sshd: processRequests\n")
 }
 
 func (s *PelicanServer) SetDefaults(cfg *PelSrvCfg) {
