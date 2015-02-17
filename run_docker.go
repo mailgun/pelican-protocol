@@ -7,8 +7,15 @@ import (
 	"time"
 )
 
+// this is the current docker image used to run sshd inside of and connect to.
+// We don't actually connect to a real sshd anymore, but we did during protocol
+// development. It might be useful to test against the real sshd in the future,
+// so we keep it around.
 var DockerHubTestImage string = "jaten/pelican04"
 
+// StartDockerImage starts a docker container based on image. It runs /sbin/my_init
+// as the process, thereby assuming that /sbin/my_init is available inside the
+// named image.
 func StartDockerImage(image string) {
 	cmd := exec.Command("/usr/bin/docker", "run", image, "/sbin/my_init")
 
@@ -44,7 +51,7 @@ func StartDockerImage(image string) {
 /*
 func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 
-	dockerip := getDockerIP()
+	dockerip := GetDockerIP()
 
 	fullcmd := strings.Join(cmd, " ")
 	out, err := h.SshConnect("root", "dot.ssh/id_rsa_docker_root", dockerip, 22, fullcmd)
@@ -65,20 +72,26 @@ func (h *KnownHosts) SshAsRootIntoDocker(cmd []string) ([]byte, error) {
 }
 */
 
+// TrimRightNewline removes the trailing byte of slice if it is a newline '\n' character.
 func TrimRightNewline(slice []byte) []byte {
 	n := len(slice)
 	if n > 0 {
-		slice = slice[:n-1]
+		if slice[n-1] == '\n' {
+			slice = slice[:n-1]
+		}
 	}
 	return slice
 }
 
+// RunningDockerId runs 'docker ps -q -n=1 -f status=running' and returns the output and any error.
 func RunningDockerId() ([]byte, error) {
 	out, err := exec.Command("/usr/bin/docker", "ps", "-q", "-n=1", "-f", "status=running").CombinedOutput()
 	out = TrimRightNewline(out)
 	return out, err
 }
 
+// StopAllDockers calls 'docker stop' on all containers determined by
+// successive calls to RunningDockerId().
 func StopAllDockers() {
 	for {
 		out, err := RunningDockerId()
@@ -96,7 +109,8 @@ func StopAllDockers() {
 	}
 }
 
-func getDockerIP() string {
+// GetDockerIP returns the IP address bound by the container returned by RunningDockerId().
+func GetDockerIP() string {
 	id, err := RunningDockerId()
 	if err != nil {
 		panic(err)
