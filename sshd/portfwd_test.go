@@ -72,6 +72,7 @@ func TestClientToServerPortForward(t *testing.T) {
 	localPortToListenOn := pelican.GetAvailPort()
 	fmt.Printf("sshConnect will listen on port %d\n", localPortToListenOn)
 	_, err = h.SshConnect(acctId, privKeyFile, pelIp, pelPort, localPortToListenOn)
+	fmt.Printf("\n done with h.SshConnect().\n")
 	if err != nil {
 		panic(err)
 	}

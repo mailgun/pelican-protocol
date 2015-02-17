@@ -17,11 +17,4 @@ func main() {
 	_, err := h.SshMakeNewAcct(pelican.GetOriginatorPrivateKey(), "localhost", 2200)
 	panicOn(err)
 
-	/*
-		out, err := h.SshConnect("root", "./id_rsa", "localhost", 2200, "pwd")
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf("out = '%s'\n", string(out))
-	*/
 }

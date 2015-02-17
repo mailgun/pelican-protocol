@@ -1,7 +1,6 @@
 package pelican
 
 import (
-	"fmt"
 	"io"
 )
 
@@ -26,19 +25,25 @@ func NewShovel() *Shovel {
 
 // Start starts the shovel doing an io.Copy from r to w. The
 // goroutine that is running the copy will close the Ready
-// channel just before starting the io.Copy.
-func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser) {
+// channel just before starting the io.Copy. The
+// label parameter allows reporting on when a specific shovel
+// was shut down.
+func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser, label string) {
 	go func() {
+		var err error
+		var n int64
 		defer func() {
 			close(s.Done)
+			VPrintf("\n shovel %s copied %d bytes before shutting down\n", label, n)
 		}()
 		close(s.Ready)
-		n, err := io.Copy(w, r)
+		n, err = io.Copy(w, r)
 		if err != nil {
-			panic(fmt.Sprintf("in Shovel, io.Copy failed: %v\n", err))
+			// don't freak out, the network connection got closed most likely.
+			// e.g. read tcp 127.0.0.1:33631: use of closed network connection
+			//panic(fmt.Sprintf("in Shovel '%s', io.Copy failed: %v\n", label, err))
 			return
 		}
-		//fmt.Printf("\n shovel copied %d bytes before shutting down\n", n)
 	}()
 	go func() {
 		<-s.ReqStop
@@ -79,11 +84,12 @@ func NewShovelPair() *ShovelPair {
 	}
 }
 
-// Start the pair of shovels
-func (s *ShovelPair) Start(a io.ReadWriteCloser, b io.ReadWriteCloser) {
-	s.AB.Start(a, b)
+// Start the pair of shovels. ab_label will label the a<-b shovel. ba_label will
+// label the b<-a shovel.
+func (s *ShovelPair) Start(a io.ReadWriteCloser, b io.ReadWriteCloser, ab_label string, ba_label string) {
+	s.AB.Start(a, b, ab_label)
 	<-s.AB.Ready
-	s.BA.Start(b, a)
+	s.BA.Start(b, a, ba_label)
 	<-s.BA.Ready
 	close(s.Ready)
 

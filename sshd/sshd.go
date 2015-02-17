@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"time"
@@ -248,33 +247,38 @@ func handleChannel(newChannel ssh.NewChannel, cfg PelSrvCfg) {
 	// reads on fromClient are forwarded to localConn
 	// reads on localConn are forwarded to fromClient
 
-	// Copy localConn.Reader to fromClient.Writer
-	go func() {
-		fmt.Printf("\n starting sshd Copy to fromClient from localConn\n")
-		_, err := io.Copy(fromClient, localConn)
-		if err != nil {
-			fmt.Printf("io.Copy failed: %v\n", err)
-			fromClient.Close()
-			localConn.Close()
-			fmt.Printf("\n returning from sshd Copy to fromClient from localConn\n")
-			return
-		}
-	}()
-
-	// Copy fromClient.Reader to localConn.Writer
-	go func() {
-		fmt.Printf("\n starting sshd Copy to localConn from fromClient\n")
-		_, err := io.Copy(localConn, fromClient)
-		if err != nil {
-			fmt.Printf("io.Copy failed: %v\n", err)
-			fromClient.Close()
-			localConn.Close()
-			fmt.Printf("\n returning from sshd Copy to localConn from fromClient\n")
-			return
-		}
-	}()
+	sp := pelican.NewShovelPair()
+	sp.Start(fromClient, localConn, "fromClient<-localConn", "localConn<-fromClient")
 
 	/*
+		// Copy localConn.Reader to fromClient.Writer
+		go func() {
+			fmt.Printf("\n starting sshd Copy to fromClient from localConn\n")
+			_, err := io.Copy(fromClient, localConn)
+			if err != nil {
+				fmt.Printf("io.Copy failed: %v\n", err)
+				fromClient.Close()
+				localConn.Close()
+				fmt.Printf("\n returning from sshd Copy to fromClient from localConn\n")
+				return
+			}
+		}()
+
+		// Copy fromClient.Reader to localConn.Writer
+		go func() {
+			fmt.Printf("\n starting sshd Copy to localConn from fromClient\n")
+			_, err := io.Copy(localConn, fromClient)
+			if err != nil {
+				fmt.Printf("io.Copy failed: %v\n", err)
+				fromClient.Close()
+				localConn.Close()
+				fmt.Printf("\n returning from sshd Copy to localConn from fromClient\n")
+				return
+			}
+		}()
+	*/
+
+	/* // older example
 	       // some basic read/write testing:
 	   	go func() {
 	   		// fromClient is a ssh.Channel, an interface with Read() and Write() methods

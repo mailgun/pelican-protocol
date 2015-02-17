@@ -20,8 +20,9 @@ type KeyPayload struct {
 	// sha1 hmac of PublicKey, prefixed with "p" (for pelican) and
 	// encoded in base 36; A regex for it would be: "p[0-9a-z]{31}"
 	// This is to conform to the requirements of linux usernames.
-	// See man page for useradd; there is a 32 character limit,
-	// and usernames must start with a letter and then contain
+	// See man page for useradd; at one point there was a 32 character limit,
+	// (must have since been raised, but we'll be conservative and honor
+	// it anyway for now). Usernames must start with a letter and then contain
 	// be only lowercase letters and digits. Underscores and
 	// dashes are allowed too but we don't use them.
 	AcctUsername string

@@ -7,6 +7,7 @@ all:
 	cd pelican-server; go build
 	cd sshd; go build
 	cd sshcli; go build
+	cd pelcli; go build
 
 debug:
 	go build -gcflags "-N -l"

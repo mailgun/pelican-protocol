@@ -14,3 +14,7 @@ server needs to check for the legit login from the stored database when the clie
 server needs to allow 'newacct' account to login for the first time and receive a new account name.
 
 the 2nd browser request also needs to return content.
+
+the proxyserver/keymgr/sshclient part, aka pelican_client:
+  needs to tear down connections once the browser closes them, so they aren't leaked.
+

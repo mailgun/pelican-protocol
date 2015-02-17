@@ -168,7 +168,8 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		fromBrowser, err := ln.Accept()
 		if err != nil {
 			if _, ok := err.(*net.OpError); ok {
-				continue
+				//continue
+				break
 			}
 			fmt.Printf("ln.Accept err = '%s'  aka '%#v'\n", err, err)
 			panic(err) // todo handle error
@@ -182,7 +183,7 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		// reads on channelToSshd are forwarded to fromBrowser.
 
 		sp := NewShovelPair()
-		sp.Start(fromBrowser, channelToSshd)
+		sp.Start(fromBrowser, channelToSshd, "fromBrowser<-channelToSshd", "channelToSshd<-fromBrowser")
 
 		/*
 			// Copy channelToSshd.Reader to fromBrowser.Writer
@@ -212,6 +213,8 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 			}()
 		*/
 	}
+
+	fmt.Printf("\n returning from SshConnect().\n")
 	return []byte{}, nil
 }
 
