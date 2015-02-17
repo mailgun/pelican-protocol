@@ -8,6 +8,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"time"
 
 	//"code.google.com/p/go.crypto/ssh"
 	"golang.org/x/crypto/ssh"
@@ -156,14 +157,21 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 
 	// make a local server listening on localPortToListenOn
 	fmt.Printf("sshutil: about to listen on local port %d\n", localPortToListenOn)
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPortToListenOn))
+	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: localPortToListenOn})
 	if err != nil {
 		panic(err) // todo handle error
 	}
 	for {
 		fmt.Printf("sshutil: about to accept on local port %d\n", localPortToListenOn)
+		timeoutMillisec := 100
+		err = ln.SetDeadline(time.Now().Add(time.Duration(timeoutMillisec) * time.Millisecond))
+		panicOn(err) // todo handle error
 		fromBrowser, err := ln.Accept()
 		if err != nil {
+			if _, ok := err.(*net.OpError); ok {
+				continue
+			}
+			fmt.Printf("ln.Accept err = '%s'  aka '%#v'\n", err, err)
 			panic(err) // todo handle error
 		}
 		fmt.Printf("sshutil: accepted connection on local port %d\n", localPortToListenOn)
@@ -175,7 +183,7 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 		// reads on channelToSshd are forwarded to fromBrowser.
 
 		// Copy channelToSshd.Reader to fromBrowser.Writer
-		go func() {
+		go func(fromBrower io.WriteCloser, channelToSshd io.ReadCloser) {
 			fmt.Printf("\n sshutil: starting Copy channelToSshd.Reader to fromBrowser.Writer\n")
 			_, err := io.Copy(fromBrowser, channelToSshd)
 			if err != nil {
@@ -185,7 +193,7 @@ func (h *KnownHosts) SshConnect(username string, keypath string, host string, po
 				fmt.Printf("\n sshutil: returning from Copy channelToSshd.Reader to fromBrowser.Writer\n")
 				return
 			}
-		}()
+		}(fromBrowser, channelToSshd)
 
 		// Copy fromBrowser.Reader to channelToSshd.Writer
 		go func() {
