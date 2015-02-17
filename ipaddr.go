@@ -10,6 +10,10 @@ var validIPv4addr = regexp.MustCompile(`^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$`)
 
 var privateIPv4addr = regexp.MustCompile(`(^127\.0\.0\.1)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)`)
 
+// IsRoutableIPv4 returns true if the string in ip represents an IPv4 address that is not
+// private. See http://en.wikipedia.org/wiki/Private_network#Private_IPv4_address_spaces
+// for the numeric ranges that are private. 127.0.0.1, 192.168.0.1, and 172.16.0.1 are
+// examples of non-routables IP addresses.
 func IsRoutableIPv4(ip string) bool {
 	match := privateIPv4addr.FindStringSubmatch(ip)
 	if match != nil {
@@ -18,6 +22,8 @@ func IsRoutableIPv4(ip string) bool {
 	return true
 }
 
+// GetExternalIP tries to determine the external IP address
+// used on this host.
 func GetExternalIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -54,6 +60,8 @@ func GetExternalIP() string {
 	}
 }
 
+// GetExternalIPAsInt calls GetExternalIP() and then converts
+// the resulting IPv4 string into an integer.
 func GetExternalIPAsInt() int {
 	s := GetExternalIP()
 	ip := net.ParseIP(s).To4()
@@ -71,8 +79,11 @@ func GetExternalIPAsInt() int {
 	return sum
 }
 
-// sure there's a race here, but should be okay.
-// :0 asks the OS to give us a free port.
+// GetAvailPort asks the OS for an unused port.
+// There's a race here, where the port could be grabbed by someone else
+// before the caller gets to Listen on it, but in practice such races
+// are rare. Uses net.Listen("tcp", ":0") to determine a free port, then
+// releases it back to the OS with Listener.Close().
 func GetAvailPort() int {
 	l, _ := net.Listen("tcp", ":0")
 	r := l.Addr()
@@ -80,6 +91,8 @@ func GetAvailPort() int {
 	return r.(*net.TCPAddr).Port
 }
 
+// GenAddress generates a local address by calling GetAvailPort() and
+// GetExternalIP(), then prefixing them with 'tcp://'.
 func GenAddress() string {
 	port := GetAvailPort()
 	ip := GetExternalIP()
@@ -91,6 +104,8 @@ func GenAddress() string {
 // reduce `tcp://blah:port` to `blah:port`
 var validSplitOffProto = regexp.MustCompile(`^[^:]*://(.*)$`)
 
+// StripNanomsgAddressPrefix removes the 'tcp://' prefix from
+// nanomsgAddr.
 func StripNanomsgAddressPrefix(nanomsgAddr string) (suffix string, err error) {
 
 	match := validSplitOffProto.FindStringSubmatch(nanomsgAddr)
