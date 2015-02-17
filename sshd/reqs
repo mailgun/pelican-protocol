@@ -1,0 +1,16 @@
+forwarding needs to shut down when the client goes away
+
+ client talks to socks-proxy which is listening, which when
+ a connection is accepted, starts the forwarding machinery.
+ This machinery needs to shut down when the client connection
+ closes.
+
+known hosts needs to be updated when the client accepts a new server.
+
+server needs to record the clients key and record and issue a new login.
+
+server needs to check for the legit login from the stored database when the client tries to connect not using the 'newacct' account.
+
+server needs to allow 'newacct' account to login for the first time and receive a new account name.
+
+the 2nd browser request also needs to return content.

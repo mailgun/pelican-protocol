@@ -116,6 +116,7 @@ type PelSrvCfg struct {
 	PelicanListenPort int
 	HttpDestIp        string
 	HttpDestPort      int
+	HttpDialTimeout   time.Duration
 }
 
 func NewPelicanServer(cfg *PelSrvCfg) *PelicanServer {
@@ -159,7 +160,7 @@ func (s *PelicanServer) Start() {
 		addr := fmt.Sprintf("%s:%d", s.Cfg.PelicanListenIp, s.Cfg.PelicanListenPort)
 		listener, err := net.Listen("tcp", addr)
 		if err != nil {
-			log.Fatalf("Failed to listen on '%s': (%s)", addr, err)
+			log.Fatalf("Failed to listen on '%s': %s", addr, err)
 		}
 
 		// Accept all connections
@@ -167,13 +168,13 @@ func (s *PelicanServer) Start() {
 		for {
 			tcpConn, err := listener.Accept()
 			if err != nil {
-				log.Printf("Failed to accept incoming connection (%s)", err)
+				log.Printf("Failed to accept incoming connection: '%s'", err)
 				continue
 			}
 			// Before use, a handshake must be performed on the incoming net.Conn.
 			sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, s.Sshd)
 			if err != nil {
-				log.Printf("Failed to handshake (%s)", err)
+				log.Printf("Failed to handshake: '%s'", err)
 				continue
 			}
 
@@ -182,7 +183,7 @@ func (s *PelicanServer) Start() {
 			go processRequests(sshConn, reqs)
 
 			// Accept all channels, even if we Reject all but direct-tcpip.
-			go handleChannels(chans)
+			go handleChannels(chans, s.Cfg)
 		}
 	}()
 }
@@ -191,13 +192,13 @@ func (s *PelicanServer) Stop() {
 	fmt.Printf("todo: Pelican-Server:Stop() not implimented.\n")
 }
 
-func handleChannels(chans <-chan ssh.NewChannel) {
+func handleChannels(chans <-chan ssh.NewChannel, cfg PelSrvCfg) {
 	for newChannel := range chans {
-		go handleChannel(newChannel)
+		go handleChannel(newChannel, cfg)
 	}
 }
 
-func handleChannel(newChannel ssh.NewChannel) {
+func handleChannel(newChannel ssh.NewChannel, cfg PelSrvCfg) {
 
 	fmt.Printf("\n in handleChannel() with channel type = '%s'\n", newChannel.ChannelType())
 
@@ -209,12 +210,9 @@ func handleChannel(newChannel ssh.NewChannel) {
 	}
 
 	// setup socket to forward this connection to port 80
-	timeout := 5 * time.Second
-	port := 80
-	ip := "127.0.0.1"
-	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), timeout)
+	localConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", cfg.HttpDestIp, cfg.HttpDestPort), cfg.HttpDialTimeout)
 	if err != nil {
-		newChannel.Reject(ssh.ConnectionFailed, fmt.Sprintf("failed to connect to server '%s' at port %d: %s", ip, port, err))
+		newChannel.Reject(ssh.ConnectionFailed, fmt.Sprintf("failed to connect to server '%s' at port %d: %s", cfg.HttpDestIp, cfg.HttpDestPort, err))
 		return
 	}
 
@@ -392,6 +390,10 @@ func processRequests(conn *ssh.ServerConn, reqs <-chan *ssh.Request) {
 func (s *PelicanServer) SetDefaults(cfg *PelSrvCfg) {
 	if cfg != nil {
 		s.Cfg = *cfg
+	}
+
+	if s.Cfg.HttpDialTimeout == 0 {
+		s.Cfg.HttpDialTimeout = 5 * time.Second
 	}
 
 	if s.Cfg.PelicanListenIp == "" {

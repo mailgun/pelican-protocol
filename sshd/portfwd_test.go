@@ -5,6 +5,7 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 	"github.com/mailgun/pelican-protocol"
 	"testing"
+	"time"
 )
 
 func TestClientToServerPortForward(t *testing.T) {
@@ -33,6 +34,7 @@ func TestClientToServerPortForward(t *testing.T) {
 		PelicanListenPort: pelPort,
 		HttpDestIp:        webIp,
 		HttpDestPort:      webPort,
+		HttpDialTimeout:   5 * time.Second,
 	})
 	peld.Start()
 	fmt.Printf("after Start()\n")
@@ -66,7 +68,7 @@ func TestClientToServerPortForward(t *testing.T) {
 
 	// 4. fetch some traffic from the website via the tunnel
 	//
-	acctId := "newacct"
+	acctId := "newacct" // essential at the moment, with the current state of sshutil.go
 	localPortToListenOn := pelican.GetAvailPort()
 	fmt.Printf("sshConnect will listen on port %d\n", localPortToListenOn)
 	_, err = h.SshConnect(acctId, privKeyFile, pelIp, pelPort, localPortToListenOn)
