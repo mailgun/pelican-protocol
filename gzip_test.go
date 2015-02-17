@@ -1,4 +1,4 @@
-package main
+package pelican
 
 import (
 	cv "github.com/glycerine/goconvey/convey"
