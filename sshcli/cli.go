@@ -14,7 +14,7 @@ func main() {
 	defer h.Close()
 
 	fmt.Printf("cli.go done with NewKnownHosts().\n")
-	_, err := h.SshMakeNewAcct(pelican.GetNewAcctPrivateKey(), "localhost", 2200)
+	_, err := h.SshMakeNewAcct(pelican.GetOriginatorPrivateKey(), "localhost", 2200)
 	panicOn(err)
 
 	/*
