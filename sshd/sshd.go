@@ -46,11 +46,11 @@ func (u *Users) PermitClientConnection(clientUser string, clientAddr net.Addr, c
 
 	fmt.Printf("\n in PermitClientConnection(): clientUser = '%s', clientAddr = '%#v', clientPubKey = '%s'\n", clientUser, clientAddr, strPubBytes)
 
-	if strPubBytes == pelican.GetNewAcctPublicKey() {
-		fmt.Printf("PermitClientConnection detected NewAcct public key, returning true\n")
+	if strPubBytes == pelican.GetOriginatorPublicKey() {
+		fmt.Printf("PermitClientConnection detected Originator public key, returning true\n")
 		return true, fmt.Errorf("new-account")
 	}
-	fmt.Printf("equal? %v \n pelican.GetNewAcctPublicKey() = \n'%s'\n and strPubBytes = \n'%s'\n", pelican.GetNewAcctPublicKey() == strPubBytes, pelican.GetNewAcctPublicKey(), strPubBytes)
+	fmt.Printf("equal? %v \n pelican.GetOriginatorPublicKey() = \n'%s'\n and strPubBytes = \n'%s'\n", pelican.GetOriginatorPublicKey() == strPubBytes, pelican.GetOriginatorPublicKey(), strPubBytes)
 
 	if clientUser == "newacct" {
 		fmt.Printf("PermitClientConnection detected user 'newacct', returning true\n")

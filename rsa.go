@@ -5,11 +5,14 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"io/ioutil"
-
 	"golang.org/x/crypto/ssh"
+	"io/ioutil"
 )
 
+// GenRsaKeyPair generates an RSA keypair of length bits. If rsa_file != "", we write
+// the private key to rsa_file and the public key to rsa_file + ".pub". If rsa_file == ""
+// the keys are not written to disk.
+//
 func GenRsaKeyPair(rsa_file string, bits int) (priv *rsa.PrivateKey, sshPriv ssh.Signer, err error) {
 
 	privKey, err := rsa.GenerateKey(cryptrand.Reader, bits)
@@ -47,9 +50,32 @@ func GenRsaKeyPair(rsa_file string, bits int) (priv *rsa.PrivateKey, sshPriv ssh
 	return privKey, sshPrivKey, nil
 }
 
-// convert RSA Public Key to an SSH authorized_keys format
+// RsaToSshPublicKey convert an RSA Public Key to the SSH authorized_keys format.
 func RsaToSshPublicKey(pubkey *rsa.PublicKey) []byte {
 	pub, err := ssh.NewPublicKey(pubkey)
 	panicOn(err)
 	return ssh.MarshalAuthorizedKey(pub)
+}
+
+// LoadRSAPrivateKey reads a private key from path on disk.
+func LoadRSAPrivateKey(path string) (privkey ssh.Signer, err error) {
+	buf, err := ioutil.ReadFile(path)
+	panicOn(err)
+
+	privkey, err = ssh.ParsePrivateKey(buf)
+	panicOn(err)
+
+	return privkey, err
+}
+
+// LoadRSAPublicKey reads a public key from path on disk. By convention
+// these keys end in '.pub', but that is not verified here.
+func LoadRSAPublicKey(path string) (pubkey ssh.PublicKey, err error) {
+	buf, err := ioutil.ReadFile(path)
+	panicOn(err)
+
+	pub, _, _, _, err := ssh.ParseAuthorizedKey(buf)
+	panicOn(err)
+
+	return pub, err
 }

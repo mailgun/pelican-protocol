@@ -13,15 +13,15 @@ import (
 // private key. Everybody will use it to create a
 // new login.
 
-func GetNewAcctPublicKey() string {
-	return newAcctPublicKey
+func GetOriginatorPublicKey() string {
+	return OriginatorPublicKey
 }
 
-func GetNewAcctPrivateKey() string {
-	return newAcctPrivateKey
+func GetOriginatorPrivateKey() string {
+	return OriginatorPrivateKey
 }
 
-var newAcctPrivateKey string = `-----BEGIN RSA PRIVATE KEY-----
+var OriginatorPrivateKey string = `-----BEGIN RSA PRIVATE KEY-----
 MIIJKgIBAAKCAgEA00TUDIV8vH7D+8zOYvobKwr7ZJie1/hGS5npsSNFpVZaSeJt
 rHbQYjNI1cQPzGSJPinixKeoULyo23x8bVpvkzmzeorvwzGAh79/eMyR22hVc4h4
 51e0N9Yf+JFAM2KtEV3rpr7OywcL4KF/oBIY4yvE+K7+c94acDmbmiCiRcJwV9Jx
@@ -74,7 +74,7 @@ ltFBezQUvD2YxwA3LF9dD13vvihp/AP3o45yp6o9NOWTj4TQtvt6Fvbli0h7kCju
 -----END RSA PRIVATE KEY-----
 `
 
-var newAcctPublicKey string = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDTRNQMhXy8fsP7zM5i+hsrCvtkmJ7X+EZLmemxI0WlVlpJ4m2sdtBiM0jVxA/MZIk+KeLEp6hQvKjbfHxtWm+TObN6iu/DMYCHv394zJHbaFVziHjnV7Q31h/4kUAzYq0RXeumvs7LBwvgoX+gEhjjK8T4rv5z3hpwOZuaIKJFwnBX0nGNinad7uZ0pF1B1KU0OSBAZvYiflWIsA7Hzfq1oDFsV4IHqKlLotXchnHhLhmP85crCo9OnGyZr4tUDCM2+smWD3Y6vpXYpuznCeFoA8Bew+iu0n1XS1qzsUX9VWMh8DhqtcfS2SLV1B1VfGmMuSlZ70DmVXg+6fxRemP9fqIwImbfWh0CXmk5plifoyR4IVC9FN/sVdrfGBdr+eeZXFAwa3nPPsTnbJYsKe1qMzZyaF+/usMsW8BViocm0zCAhdZQeuJdhPDe/ZUidi8DM/fvTkdmi84Faf2oRLccbwHdI1vFEmLWblKf4jknA2hbQ4IuQm7L6RTL39beAPGV0w2LIVdMwCL5ZdsyY+T4k1mbzSPdNx3tgxkZJsSVQnQ7sEtQeuo+GOcEPapQlSSe6IytRby85LwAzIWv/9xQXrntkCn5wKoKmUlMACJtFgGFthmHipaFknqiCnhm+5cxDF8YLdjxQ1zp7NGfGqdwJRwqrYZrIcQV70RumRxFYQ==`
+var OriginatorPublicKey string = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDTRNQMhXy8fsP7zM5i+hsrCvtkmJ7X+EZLmemxI0WlVlpJ4m2sdtBiM0jVxA/MZIk+KeLEp6hQvKjbfHxtWm+TObN6iu/DMYCHv394zJHbaFVziHjnV7Q31h/4kUAzYq0RXeumvs7LBwvgoX+gEhjjK8T4rv5z3hpwOZuaIKJFwnBX0nGNinad7uZ0pF1B1KU0OSBAZvYiflWIsA7Hzfq1oDFsV4IHqKlLotXchnHhLhmP85crCo9OnGyZr4tUDCM2+smWD3Y6vpXYpuznCeFoA8Bew+iu0n1XS1qzsUX9VWMh8DhqtcfS2SLV1B1VfGmMuSlZ70DmVXg+6fxRemP9fqIwImbfWh0CXmk5plifoyR4IVC9FN/sVdrfGBdr+eeZXFAwa3nPPsTnbJYsKe1qMzZyaF+/usMsW8BViocm0zCAhdZQeuJdhPDe/ZUidi8DM/fvTkdmi84Faf2oRLccbwHdI1vFEmLWblKf4jknA2hbQ4IuQm7L6RTL39beAPGV0w2LIVdMwCL5ZdsyY+T4k1mbzSPdNx3tgxkZJsSVQnQ7sEtQeuo+GOcEPapQlSSe6IytRby85LwAzIWv/9xQXrntkCn5wKoKmUlMACJtFgGFthmHipaFknqiCnhm+5cxDF8YLdjxQ1zp7NGfGqdwJRwqrYZrIcQV70RumRxFYQ==`
 
 func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) (acctid string, err error) {
 
@@ -112,7 +112,7 @@ func (h *KnownHosts) SshMakeNewAcct(privKeyPath string, host string, port int) (
 	}
 	// end hostKeyCallback closure definition. Has to be a closure to access h.
 
-	privkeyString := GetNewAcctPrivateKey()
+	privkeyString := GetOriginatorPrivateKey()
 	privkey, err := ssh.ParsePrivateKey([]byte(privkeyString))
 	panicOn(err)
 

@@ -15,18 +15,18 @@ func example_main() {
 	pass := []byte("hello")
 
 	// encrypt value to base64
-	cryptoText := encrypt(pass, []byte(originalText))
+	cryptoText := EncryptAes256Gcm(pass, []byte(originalText))
 	fmt.Println(string(cryptoText))
 
 	// encrypt base64 crypto to original value
-	text := decrypt(pass, cryptoText)
+	text := DecryptAes256Gcm(pass, cryptoText)
 	fmt.Printf(string(text))
 }
 
 // want 32 byte key to select AES-256
 var keyPadding = []byte(`z5L2XDZyCPvskrnktE-dUak2BQHW9tue`)
 
-func XorWithKeyPadding(pw []byte) []byte {
+func xorWithKeyPadding(pw []byte) []byte {
 	if len(keyPadding) != 32 {
 		panic("32 bit key needed to invoke AES256")
 	}
@@ -43,10 +43,11 @@ func XorWithKeyPadding(pw []byte) []byte {
 	return dst
 }
 
-// encrypt string to base64 crypto using AES
-func encrypt(passphrase []byte, plaintext []byte) []byte {
+// EncryptAes256Gcm encrypts plaintext using passphrase using AES256-GCM,
+// then converts it to base64url encoding.
+func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 
-	key := XorWithKeyPadding(passphrase)
+	key := xorWithKeyPadding(passphrase)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -74,10 +75,12 @@ func encrypt(passphrase []byte, plaintext []byte) []byte {
 	return ret
 }
 
-// decrypt from base64 to decrypted string
-func decrypt(passphrase []byte, cryptoText []byte) []byte {
+// DecryptAes256Gcm is the inverse of EncryptAesGcm. It removes the
+// base64url encoding, and then decrypts cryptoText using passphrase
+// under the assumption that AES256-GCM was used to encrypt it.
+func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 
-	key := XorWithKeyPadding(passphrase)
+	key := xorWithKeyPadding(passphrase)
 
 	dbuf := make([]byte, base64.URLEncoding.DecodedLen(len(cryptoText)))
 	n, err := base64.URLEncoding.Decode(dbuf, []byte(cryptoText))
