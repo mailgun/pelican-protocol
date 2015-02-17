@@ -33,11 +33,12 @@ func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser) {
 			close(s.Done)
 		}()
 		close(s.Ready)
-		_, err := io.Copy(w, r)
+		n, err := io.Copy(w, r)
 		if err != nil {
 			panic(fmt.Sprintf("in Shovel, io.Copy failed: %v\n", err))
 			return
 		}
+		//fmt.Printf("\n shovel copied %d bytes before shutting down\n", n)
 	}()
 	go func() {
 		<-s.ReqStop
