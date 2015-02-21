@@ -7,6 +7,8 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
+	mathrand "math/rand"
+	"time"
 )
 
 func example_main() {
@@ -49,7 +51,7 @@ func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 	// key stretching
 	for i := 0; i < 10000; i++ {
 		kb := sha1.Sum(keyBytes)
-		// salt each round, gets us to 32 bytes
+		// salt each round, gets us to 32 bytes. Tries to avoid transferable state attack.
 		keyBytes = append(kb[:], nonce...)
 
 		//fmt.Printf("len of keybytes = %d, '%x'\n", len(keyBytes), string(keyBytes)) // 32
@@ -83,7 +85,23 @@ func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 		panic(err)
 	}
 
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+	// hide length by adding randomness at begin/end
+	lenPlain := len(plaintext)
+	pad1 := MakeRandPadding(16, 255)
+	lenPad1 := len(pad1) // fits in 8 bits
+	pad2 := MakeRandPadding(16, 255)
+	lenPad2 := len(pad2) // fits in 8 bits
+
+	np := lenPad1 + lenPlain + lenPad2 + 2
+	paddedPlain := make([]byte, np)
+	paddedPlain[0] = byte(lenPad1)
+	paddedPlain[1] = byte(lenPad2)
+
+	copy(paddedPlain[2:], pad1)
+	copy(paddedPlain[2+lenPad1:], plaintext)
+	copy(paddedPlain[2+lenPad1+lenPlain:], pad2)
+
+	ciphertext := gcm.Seal(nil, nonce, paddedPlain, nil)
 	full := append(nonce, ciphertext...)
 
 	// convert to base64
@@ -129,5 +147,28 @@ func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 		panic(err)
 	}
 
-	return plain
+	lenPad1 := int(plain[0])
+	lenPad2 := int(plain[1])
+	lenPlain := len(plain)
+
+	return plain[2+lenPad1 : lenPlain-lenPad2]
+}
+
+// MakeRandPadding produces non crypto (fast) random bytes for
+// prepending to messges/compressed messages to avoid leaking info,
+// and to make it harder to recognize if you've actually
+// cracked it.
+func MakeRandPadding(minBytes int, maxBytes int) []byte {
+	r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	span := maxBytes - minBytes
+	if span < 0 {
+		panic("negative span")
+	}
+	nbytes := minBytes + int(r.Int63n(int64(span)))
+
+	b := make([]byte, nbytes)
+	for i := 0; i < nbytes; i++ {
+		b[i] = byte(r.Uint32() % 256)
+	}
+	return b
 }
