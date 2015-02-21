@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 )
@@ -26,7 +27,7 @@ func example_main() {
 // want 32 byte key to select AES-256
 var keyPadding = []byte(`z5L2XDZyCPvskrnktE-dUak2BQHW9tue`)
 
-func xorWithKeyPadding(pw []byte) []byte {
+func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 	if len(keyPadding) != 32 {
 		panic("32 bit key needed to invoke AES256")
 	}
@@ -40,14 +41,37 @@ func xorWithKeyPadding(pw []byte) []byte {
 	for i := 0; i < max; i++ {
 		dst[i%ndst] = keyPadding[i%ndst] ^ pw[i%npw]
 	}
-	return dst
+
+	key := append(dst, nonce...) // nonce acts as our salt
+
+	keyBytes := []byte(key)
+
+	// key stretching
+	for i := 0; i < 10000; i++ {
+		kb := sha1.Sum(keyBytes)
+		// salt each round, gets us to 32 bytes
+		keyBytes = append(kb[:], nonce...)
+
+		//fmt.Printf("len of keybytes = %d, '%x'\n", len(keyBytes), string(keyBytes)) // 32
+	}
+
+	return keyBytes[:32]
 }
+
+const gcmNonceByteLen = 12
 
 // EncryptAes256Gcm encrypts plaintext using passphrase using AES256-GCM,
 // then converts it to base64url encoding.
 func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 
-	key := xorWithKeyPadding(passphrase)
+	//fmt.Printf("nz = %d\n", gcm.NonceSize()) // 12
+
+	nonce := make([]byte, gcmNonceByteLen)
+	if _, err := rand.Read(nonce); err != nil {
+		panic(err)
+	}
+
+	key := xorWithKeyPadding(passphrase, nonce)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -56,13 +80,6 @@ func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		panic(err)
-	}
-
-	//fmt.Printf("nz = %d\n", gcm.NonceSize()) // 12
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
 		panic(err)
 	}
 
@@ -80,14 +97,22 @@ func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 // under the assumption that AES256-GCM was used to encrypt it.
 func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 
-	key := xorWithKeyPadding(passphrase)
-
 	dbuf := make([]byte, base64.URLEncoding.DecodedLen(len(cryptoText)))
 	n, err := base64.URLEncoding.Decode(dbuf, []byte(cryptoText))
 	if err != nil {
 		panic(err)
 	}
 	full := dbuf[:n]
+
+	nz := gcmNonceByteLen
+	if len(full) < nz {
+		panic("ciphertext too short")
+	}
+
+	nonce := full[:nz]
+	ciphertext := full[nz:]
+
+	key := xorWithKeyPadding(passphrase, nonce)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -98,14 +123,6 @@ func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 	if err != nil {
 		panic(err)
 	}
-
-	nz := gcm.NonceSize()
-	if len(full) < nz {
-		panic("ciphertext too short")
-	}
-
-	nonce := full[:nz]
-	ciphertext := full[nz:]
 
 	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
