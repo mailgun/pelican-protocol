@@ -46,18 +46,21 @@ func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 
 	key := append(dst, nonce...) // nonce acts as our salt
 
-	keyBytes := []byte(key)
+	kb0 := []byte(key)
 
-	// key stretching
-	for i := 0; i < 10000; i++ {
-		kb := sha1.Sum(keyBytes)
-		// salt each round, gets us to 32 bytes. Tries to avoid transferable state attack.
-		keyBytes = append(kb[:], nonce...)
-
-		//fmt.Printf("len of keybytes = %d, '%x'\n", len(keyBytes), string(keyBytes)) // 32
+	// key stretching; do a bunch of sha1
+	kbprev := kb0
+	N := 10000
+	for i := 0; i < N; i++ {
+		kbprev = kb0[:]
+		kb1 := sha1.Sum(kb0)
+		kb0 = kb1[:]
+		//fmt.Printf("len of keybytes = %d, '%x'\n", len(kb0), string(kb0)) // 20
 	}
 
-	return keyBytes[:32]
+	res := append(kb0[:20], kbprev[6:18]...)
+	//fmt.Printf("res = %x\n", res)
+	return res
 }
 
 const gcmNonceByteLen = 12
