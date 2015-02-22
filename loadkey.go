@@ -59,5 +59,6 @@ func PasswordToSshPrivKeyUnlocker(password []byte, iv []byte) []byte {
 	withsalt := make([]byte, lenpass+8)
 	copy(withsalt, password)
 	copy(withsalt[lenpass:], iv[:8])
-	return md5.Sum(withsalt)[:]
+	md := md5.Sum(withsalt)
+	return md[:]
 }

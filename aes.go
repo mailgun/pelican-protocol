@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/crypto/scrypt"
 	sha3 "golang.org/x/crypto/sha3"
 )
 
@@ -128,9 +129,16 @@ func xorWithKeyPadding(pw []byte, salt []byte) []byte {
 	// more official key stretching by RSA's PBKDF2
 	res2 := pbkdf2.Key(res, salt, 4096, 32, sha512.New384)
 
+	// and by scrypt key stretching
+	res3, err := scrypt.Key(res2, salt, 65536, 8, 1, 32)
+	if err != nil {
+		panic(err)
+	}
+
 	//fmt.Printf("res = %x\n", res)
 	//fmt.Printf("res2 = %x\n", res2)
-	return res2
+	//fmt.Printf("res3 = %x\n", res3)
+	return res3
 }
 
 // EncryptAes256Gcm encrypts plaintext using passphrase using AES256-GCM,
