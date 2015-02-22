@@ -13,14 +13,21 @@ import (
 	sha3 "golang.org/x/crypto/sha3"
 )
 
+const gcmNonceByteLen = 12
+
+const RequiredSaltLen = 64
+
 func example_main() {
 	originalText := "8 encrypt this golang 123"
 	fmt.Println(originalText)
 
 	pass := []byte("hello")
 
+	salt := MakeRandPadding(RequiredSaltLen, RequiredSaltLen)
+	fmt.Printf("salt = %x\n", salt)
+
 	// encrypt value to base64
-	cryptoText := EncryptAes256Gcm(pass, []byte(originalText))
+	cryptoText := EncryptAes256Gcm(pass, []byte(originalText), salt)
 	fmt.Println(string(cryptoText))
 
 	// encrypt base64 crypto to original value
@@ -63,7 +70,7 @@ func XorWrapBytes(a []byte, b []byte) []byte {
 	return dst
 }
 
-func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
+func xorWithKeyPadding(pw []byte, salt []byte) []byte {
 	if len(keyPadding) != 32 {
 		panic("32 bit key needed to invoke AES256")
 	}
@@ -78,7 +85,7 @@ func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 		dst[i%ndst] = keyPadding[i%ndst] ^ pw[i%npw]
 	}
 
-	key := append(dst, nonce...) // nonce acts as our salt
+	key := append(dst, salt...)
 
 	kb0 := []byte(key)
 
@@ -113,11 +120,13 @@ func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 	return res
 }
 
-const gcmNonceByteLen = 12
-
 // EncryptAes256Gcm encrypts plaintext using passphrase using AES256-GCM,
 // then converts it to base64url encoding.
-func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
+func EncryptAes256Gcm(passphrase []byte, plaintext []byte, salt []byte) []byte {
+
+	if len(salt) != RequiredSaltLen {
+		panic(fmt.Sprintf("salt was length %d, but %d required", len(salt), RequiredSaltLen))
+	}
 
 	//fmt.Printf("nz = %d\n", gcm.NonceSize()) // 12
 
@@ -126,7 +135,7 @@ func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 		panic(err)
 	}
 
-	key := xorWithKeyPadding(passphrase, nonce)
+	key := xorWithKeyPadding(passphrase, salt)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -156,6 +165,7 @@ func EncryptAes256Gcm(passphrase []byte, plaintext []byte) []byte {
 
 	ciphertext := gcm.Seal(nil, nonce, paddedPlain, nil)
 	full := append(nonce, ciphertext...)
+	full = append(full, salt...)
 
 	// convert to base64
 	ret := make([]byte, base64.URLEncoding.EncodedLen(len(full)))
@@ -174,16 +184,24 @@ func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 		panic(err)
 	}
 	full := dbuf[:n]
-
 	nz := gcmNonceByteLen
-	if len(full) < nz {
-		panic("ciphertext too short")
+	req := nz + RequiredSaltLen + 1
+	if len(full) < req {
+		panic(fmt.Errorf("ciphertext too short. len(full)=%d, need at least %d", len(full), req))
 	}
 
-	nonce := full[:nz]
-	ciphertext := full[nz:]
+	cipherLen := n - RequiredSaltLen
 
-	key := xorWithKeyPadding(passphrase, nonce)
+	nonce := full[:nz]
+	ciphertext := full[nz:cipherLen]
+	salt := full[cipherLen:]
+
+	lenSalt := len(salt)
+	if lenSalt != RequiredSaltLen {
+		panic(fmt.Sprintf("decoding: salt was length %d, but %d required", lenSalt, RequiredSaltLen))
+	}
+
+	key := xorWithKeyPadding(passphrase, salt)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -210,14 +228,17 @@ func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 // MakeRandPadding produces non crypto (fast) random bytes for
 // prepending to messges/compressed messages to avoid leaking info,
 // and to make it harder to recognize if you've actually
-// cracked it.
+// cracked it. Also useful for generating salt.
 func MakeRandPadding(minBytes int, maxBytes int) []byte {
 	r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
 	span := maxBytes - minBytes
 	if span < 0 {
 		panic("negative span")
 	}
-	nbytes := minBytes + int(r.Int63n(int64(span)))
+	nbytes := minBytes
+	if span > 0 {
+		nbytes += int(r.Int63n(int64(span)))
+	}
 
 	b := make([]byte, nbytes)
 	for i := 0; i < nbytes; i++ {

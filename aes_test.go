@@ -15,9 +15,11 @@ func TestAes(t *testing.T) {
 		fmt.Println(originalText)
 
 		pass := []byte("hello")
+		salt := MakeRandPadding(RequiredSaltLen, RequiredSaltLen)
+		fmt.Printf("salt = %x\n", salt)
 
 		// encrypt value to base64
-		cryptoText := EncryptAes256Gcm(pass, []byte(originalText))
+		cryptoText := EncryptAes256Gcm(pass, []byte(originalText), salt)
 		fmt.Println(string(cryptoText))
 
 		// encrypt base64 crypto to original value
