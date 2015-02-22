@@ -1,6 +1,7 @@
 package pelican
 
 import (
+	cryptorand "crypto/rand"
 	"fmt"
 	"testing"
 
@@ -16,6 +17,10 @@ func TestAes(t *testing.T) {
 
 		pass := []byte("hello")
 		salt := MakeRandPadding(RequiredSaltLen, RequiredSaltLen)
+		// that is weak. /dev/urandom is better:
+		if _, err := cryptorand.Read(salt); err != nil {
+			panic(err)
+		}
 		fmt.Printf("salt = %x\n", salt)
 
 		// encrypt value to base64

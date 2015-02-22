@@ -3,13 +3,15 @@ package pelican
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha1"
+	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
 	mathrand "math/rand"
 	"time"
 
+	"golang.org/x/crypto/pbkdf2"
 	sha3 "golang.org/x/crypto/sha3"
 )
 
@@ -24,7 +26,11 @@ func example_main() {
 	pass := []byte("hello")
 
 	salt := MakeRandPadding(RequiredSaltLen, RequiredSaltLen)
-	fmt.Printf("salt = %x\n", salt)
+	// that is weak. /dev/urandom is better:
+	if _, err := cryptorand.Read(salt); err != nil {
+		panic(err)
+	}
+	//fmt.Printf("salt = %x\n", salt)
 
 	// encrypt value to base64
 	cryptoText := EncryptAes256Gcm(pass, []byte(originalText), salt)
@@ -35,7 +41,9 @@ func example_main() {
 	fmt.Printf(string(text))
 }
 
-// want 32 byte key to select AES-256
+// want 32 byte key to select AES-256.
+// Don't change this (unless you want to invalidate all
+// your existing passwords).
 var keyPadding = []byte(`z5L2XDZyCPvskrnktE-dUak2BQHW9tue`)
 
 // XorWrapBytes deterministicallyl XORs two
@@ -116,8 +124,13 @@ func xorWithKeyPadding(pw []byte, salt []byte) []byte {
 
 	// xor down from 64 to 32 bytes
 	res := XorWrapBytes(shakenNotStirred[:32], shakenNotStirred[32:64])
+
+	// more official key stretching by RSA's PBKDF2
+	res2 := pbkdf2.Key(res, salt, 4096, 32, sha512.New384)
+
 	//fmt.Printf("res = %x\n", res)
-	return res
+	//fmt.Printf("res2 = %x\n", res2)
+	return res2
 }
 
 // EncryptAes256Gcm encrypts plaintext using passphrase using AES256-GCM,
@@ -131,7 +144,7 @@ func EncryptAes256Gcm(passphrase []byte, plaintext []byte, salt []byte) []byte {
 	//fmt.Printf("nz = %d\n", gcm.NonceSize()) // 12
 
 	nonce := make([]byte, gcmNonceByteLen)
-	if _, err := rand.Read(nonce); err != nil {
+	if _, err := cryptorand.Read(nonce); err != nil {
 		panic(err)
 	}
 
@@ -228,7 +241,7 @@ func DecryptAes256Gcm(passphrase []byte, cryptoText []byte) []byte {
 // MakeRandPadding produces non crypto (fast) random bytes for
 // prepending to messges/compressed messages to avoid leaking info,
 // and to make it harder to recognize if you've actually
-// cracked it. Also useful for generating salt.
+// cracked it.
 func MakeRandPadding(minBytes int, maxBytes int) []byte {
 	r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
 	span := maxBytes - minBytes
