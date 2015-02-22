@@ -9,6 +9,8 @@ import (
 	"fmt"
 	mathrand "math/rand"
 	"time"
+
+	sha3 "golang.org/x/crypto/sha3"
 )
 
 func example_main() {
@@ -28,6 +30,38 @@ func example_main() {
 
 // want 32 byte key to select AES-256
 var keyPadding = []byte(`z5L2XDZyCPvskrnktE-dUak2BQHW9tue`)
+
+// XorWrapBytes deterministicallyl XORs two
+// byte slices together, wrapping one against
+// the other if need be. The result is the
+// same length as the longer of a and b
+func XorWrapBytes(a []byte, b []byte) []byte {
+	na := len(a)
+	nb := len(b)
+
+	if na == 0 || nb == 0 {
+		panic("must have non zero length slices as inputs")
+	}
+
+	min := na
+	if nb < min {
+		min = nb
+	}
+
+	max := na
+	if nb > max {
+		max = nb
+	}
+
+	dst := make([]byte, max)
+	ndst := max
+
+	for i := 0; i < max; i++ {
+		dst[i%ndst] = b[i%nb] ^ a[i%na]
+	}
+
+	return dst
+}
 
 func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 	if len(keyPadding) != 32 {
@@ -49,16 +83,32 @@ func xorWithKeyPadding(pw []byte, nonce []byte) []byte {
 	kb0 := []byte(key)
 
 	// key stretching; do a bunch of sha1
-	kbprev := kb0
 	N := 10000
 	for i := 0; i < N; i++ {
-		kbprev = kb0[:]
 		kb1 := sha1.Sum(kb0)
 		kb0 = kb1[:]
 		//fmt.Printf("len of keybytes = %d, '%x'\n", len(kb0), string(kb0)) // 20
 	}
 
-	res := append(kb0[:20], kbprev[6:18]...)
+	// finish with more key stretching with different hashes.
+	sha3_512_digest := sha3.Sum512(kb0)
+
+	shaker := sha3.NewShake256()
+	_, err := shaker.Write(sha3_512_digest[:])
+	if err != nil {
+		panic(fmt.Sprintf("could not write into shaker from sha3_512_digest: '%s'", err))
+	}
+	//fmt.Printf("\n kb0 = '%x'\n", kb0)
+	//fmt.Printf("\n sha3_512_digest = '%x'\n", sha3_512_digest)
+
+	shakenNotStirred := make([]byte, 64)
+	n, err := shaker.Read(shakenNotStirred)
+	if n != 64 || err != nil {
+		panic(fmt.Sprintf("could not read 64 bytes for shakenNotStirred: '%s'", err))
+	}
+
+	// xor down from 64 to 32 bytes
+	res := XorWrapBytes(shakenNotStirred[:32], shakenNotStirred[32:64])
 	//fmt.Printf("res = %x\n", res)
 	return res
 }

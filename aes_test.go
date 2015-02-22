@@ -27,3 +27,23 @@ func TestAes(t *testing.T) {
 
 	})
 }
+
+func TestXor(t *testing.T) {
+
+	cv.Convey("xorWrapBytes() should xor two byte slices together", t, func() {
+
+		a := []byte{0x01, 0x02, 0x03}
+		b := []byte{0x10, 0x20, 0x30}
+		e := []byte{0x11, 0x22, 0x33}
+
+		o := XorWrapBytes(a, b)
+		cv.So(o, cv.ShouldResemble, e)
+
+		a2 := []byte{0x11, 0x22, 0x33}
+		e2 := []byte{0x01, 0x02, 0x03}
+
+		o2 := XorWrapBytes(a2, b)
+		cv.So(o2, cv.ShouldResemble, e2)
+
+	})
+}
