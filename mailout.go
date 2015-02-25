@@ -14,8 +14,8 @@ import (
 type MailgunConfig struct {
 	ApiKey     string   `json:"apikey"`
 	Domain     string   `json:"domain"`
-	FromEmail  string   `json:"from-email"`  // e.g. "Joe McMail <joe@example.com>"
-	RecipEmail []string `json:"recip-email"` // e.g. "Joe McMail <joe@example.com>"
+	FromEmail  string   `json:"from-email"`  // e.g. "Jill McMail <jill@example.com>"
+	RecipEmail []string `json:"recip-email"` // e.g. ["Jill McMail <jill@examaple.com", "Joe McMail <joe@example.com>"]
 }
 
 func (c *MailgunConfig) Load(path string) error {
