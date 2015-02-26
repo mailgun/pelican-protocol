@@ -19,7 +19,7 @@ Now suppose you are browsing the web using your favorite browser. The Pelican cl
 summary
 -------
 
-The Pelican Protocol provides means of doing user creation and authentication over an SSH based protocol that tunnels http/https. It aims for strong usability by lay persons, and provides for portable and easy key management. A proxy for the client side does the key management and server identity checking, acting in the role of ssh-agent and the ssh client. On the server side, a reverse proxy and a secure login shell to implement the server side of the protocol are provided.
+The Pelican Protocol provides means of doing user creation and authentication over an SSH based protocol that tunnels http/https. It aims for strong usability by lay persons, and provides for portable and easy key management. A proxy for the client side does the key management and server identity checking, acting in the role of ssh-agent and the ssh client. On the server side, a reverse proxy and a secure auto-login mechanism, provides easy key rotation and backup, and can be configured to allow logins for users only from known hosts. Two factor authentication is easy integrated.
 
 
 
