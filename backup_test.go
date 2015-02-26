@@ -107,6 +107,8 @@ http://http-tunnel.sourceforge.net/
 
 http://sshh.sourceforge.net/
 
+http://www.nocrew.org/software/httptunnel.html  <<-- will this work?!
+
 
 ////////////////////
 // bosh
