@@ -121,6 +121,20 @@ http://xmpp.org/extensions/xep-0124.html
 
 aka long polling
 
+////// realistically, our reverse proxy should not sit in front of the nginx http server.
+////// instead, offer people a choice to run ssh protocol on port 443 and have the reverse
+////// proxy forward it to port 80.  SSH and SSL can share port 443 using our reverse proxy.
+////// firewalls can then only allow port 443 connections sometime in the very near future.
 
+
+what does this look like? At first, configure yourself our proxy server; or
+
+AT first: browsers think they are connecting to a proxy that enables duplexing ssh and ssl together.
+
+Later: browsers can implement this themselves.
+
+The death of port 80.
+
+We need an easy to use, free alternative to TLS/SSL certificates. It should be at least as secure as TLS, hopefully more so. It should completely obliterate the need for password based login, and it should obliterate phishing.
 
 */

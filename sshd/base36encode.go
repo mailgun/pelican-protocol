@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
+	"math"
 	"math/big"
 )
 
@@ -24,7 +25,8 @@ func CheckSha1HMAC(message, messageMAC, key []byte) bool {
 func encodeSha1HmacAsUsername(sha1 []byte) string {
 	i := new(big.Int)
 	i.SetBytes(sha1)
-	return "p" + bigIntToBase36string(i)
+	_, str := BigIntToBase36(i)
+	return "p" + str
 }
 
 var enc36 string = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -35,8 +37,29 @@ func encode36(i int64) rune {
 	return e36[i]
 }
 
-func bigIntToBase36string(val *big.Int) string {
-	const N = 31 // ceiling(log(2^160,36))
+// returns both a []byte and a string encoding of the bigInt val
+// using only a-z0-9 characters. Assumes a positive bigInt val.
+// Negative val results are undefined.
+func BigIntToBase36(val *big.Int) ([]byte, string) {
+
+	by := val.Bytes()
+	nBytes := len(by)
+	nBits := nBytes * 8
+
+	// zero special case
+	if nBytes == 0 {
+		return []byte{0}, "0"
+	}
+
+	// compute how many bits we'll need to
+	// encode nBytes in base 36. We want
+	// Ceil(Log(2^nBits, 36)) == Ceil(nBits * Log(2, 36))
+	//  and
+	// log(2, 36) == 0.1934264
+	const log2base36 float64 = 0.1934264
+	NeededDigits36 := int(math.Ceil(log2base36 * float64(nBits)))
+
+	N := NeededDigits36
 	res := make([]rune, N)
 	left := new(big.Int)
 	quo := new(big.Int)
@@ -53,7 +76,8 @@ func bigIntToBase36string(val *big.Int) string {
 		res[N-1-i] = e
 	}
 
-	return string(res)
+	s := string(res)
+	return []byte(s), s
 }
 
 func Sha256HMAC(message, key []byte) []byte {
@@ -68,4 +92,11 @@ func CheckSha256HMAC(message, messageMAC, key []byte) bool {
 	mac.Write(message)
 	expectedMAC := mac.Sum(nil)
 	return hmac.Equal(messageMAC, expectedMAC)
+}
+
+func EncodeBytesBase36(by []byte) []byte {
+	i := new(big.Int)
+	i.SetBytes(by)
+	b, _ := BigIntToBase36(i)
+	return b
 }
