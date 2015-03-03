@@ -1,0 +1,17 @@
+
+0. To avoid being blocked by firewalls that check for TLS, Pelican may have to do stunnel over TLS to itself, using certificates on the server that client can use to recognize if Pelican is in use. How can the server PRP be in place transparently to non-client web-browsers?  If the client isn't pelican and there is an https webserver, we just want to get out of the way completely. If the client isn't pelican and there is only an http server, the Pelican proxy can provide an unsigned/self-signed cert.
+
+[stunnel in golang: https://github.com/johnnylee/ttunnel]
+
+BDD Plan
+
+1. So that the PRP pelican reverse proxy (sshd/reverse proxy), aka PRP, can be installed alongside an existing http/s webserver, the PRP should forward http and https from its port (443) to the local (or remote) webserver.
+
+2. To keep the logs of the webserver informative and the same as before Pelican server install, When the local webserver receives the traffic, it should appear to come from the original ip address/port; not from the proxy server local ip/port.
+
+3. To allow backcompatibility with https servers listening on port 443, the PRP should multiplex port 443 between the Pelican protocol and Raw TLS sockets, so when a Raw-normal TLS socket connection is made, the PRP should simply forward it on. On the other hand, if the connection is Pelican TLS, it should establish the pelican-protocol handshake and supply server host-key identification to the pelican client.
+
+4. To prevent the server from being phished or MITM-ed, The Pelican Socks Proxy (client) aka PSP should check the servers host-key against previously seen host keys, and only allow the use of previously-made account keys with the server that first established that key.  New servers can only create new account keys, which the client will provide a new key pair for. New servers never get to access pre-existing keypairs from the client-side. The PSP will only allow login credentials such as using the client's private key to be entered if the server-key matches.
+
+5. The PSP client must act as a socks proxy for both HTTP and HTTPS so that it can forward traffic over the secure Pelican protocol.
+
