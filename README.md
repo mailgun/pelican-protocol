@@ -1,4 +1,4 @@
-# pelican-protocol
+# pelican-protocol: Do-It-Yourself-Trust
 ![diagram of pelican protocol in action](https://github.com/mailgun/pelican-protocol/blob/master/pelican.png "pelican-protocol-diagram")
 
 Pelicans are ferocious eaters of fish. According to wikipedia, in ancient Egypt the pelican "was believed to possess the ability to prophesy safe passage in the underworld."[1] Pelicans are gregarious and nest colonially. Pairs are monogamous for a single season, but the pair bond extends only to the nesting area; mates are independent away from the nest.[2]
