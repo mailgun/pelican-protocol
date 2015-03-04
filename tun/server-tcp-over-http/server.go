@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	tun "github.com/glycerine/gohttptun"
+	tun "github.com/mailgun/pelican-protocol/tun"
 )
 
 //var destAddr = "127.0.0.1:12222" // tunnel destination
