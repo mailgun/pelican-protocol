@@ -1,4 +1,4 @@
-package gohttptun
+package pelicantun
 
 const KeyLen = 64
 

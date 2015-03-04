@@ -23,3 +23,7 @@ clean:
 	rm -f *~
 	pkill -9 client-tcp-over-http || echo
 	pkill -9 server-tcp-over-http || echo
+
+testbuild:
+	go test -c -gcflags "-N -l" -v
+

@@ -1,4 +1,4 @@
-package gohttptun
+package pelicantun
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 	cv "github.com/smartystreets/goconvey/convey"
 )
 
-func TestServerBindsPort(t *testing.T) {
-	cv.Convey("Given that we start a server on a given port, then the server should be listening on that port", t, func() {
-		cv.So(googleDNSIP, cv.ShouldEqual, false)
+func TestReverseProxyTalksToWebSite(t *testing.T) {
+	cv.Convey("When we start the ReverseProxy, it should forward web requests to ultimate target web server at the given host and port", t, func() {
+		cv.So(true, cv.ShouldEqual, true)
 	})
 }

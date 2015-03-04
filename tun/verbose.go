@@ -1,4 +1,4 @@
-package gohttptun
+package pelicantun
 
 import (
 	"fmt"
