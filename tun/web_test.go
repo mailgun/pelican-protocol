@@ -10,6 +10,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// couldn't get goconvey to compile this simple test, so using Ginkgo here.
+
 func TestWebServer(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Web Server Suite")
