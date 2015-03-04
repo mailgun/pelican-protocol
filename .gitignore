@@ -45,3 +45,10 @@ sshd/id_rsa.pub
 *txt
 sshd/host-key-id-rsa
 sshd/host-key-id-rsa.pub
+.mg.cfg.json
+bin/*
+backup/backup
+pelican-server/id_rsa
+pelican-server/id_rsa.pub
+sshcli/id_rsa
+sshcli/id_rsa.pub
