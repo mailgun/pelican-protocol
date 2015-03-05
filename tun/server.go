@@ -12,6 +12,10 @@ import (
 )
 
 type ReverseProxy struct {
+	Cfg ReverseProxyConfig
+}
+
+type ReverseProxyConfig struct {
 	destIP     string
 	destPort   string
 	destAddr   string
@@ -131,7 +135,7 @@ func (s *ReverseProxy) createHandler(c http.ResponseWriter, r *http.Request) {
 	key := genKey()
 	po("in createhandler(): Server::createHandler generated key '%s'\n", key)
 
-	p, err := NewProxy(key, s.destAddr)
+	p, err := NewProxy(key, s.Cfg.destAddr)
 	if err != nil {
 		http.Error(c, "Could not connect",
 			http.StatusInternalServerError)
@@ -179,10 +183,9 @@ func proxyMuxer() {
 	po("proxyMuxer done\n")
 }
 
-func NewReverseProxy(listenAddr string, destAddr string) *ReverseProxy {
+func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 	return &ReverseProxy{
-		destAddr:   destAddr,
-		listenAddr: listenAddr,
+		Cfg: cfg,
 	}
 }
 
@@ -193,8 +196,8 @@ func (s *ReverseProxy) ListenAndServe() {
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/create", s.createHandler)
 	fmt.Printf("about to ListenAndServer on listenAddr '%#v'. Ultimate destAddr: '%s'\n",
-		s.listenAddr, s.destAddr)
-	err := http.ListenAndServe(s.listenAddr, nil)
+		s.Cfg.listenAddr, s.Cfg.destAddr)
+	err := http.ListenAndServe(s.Cfg.listenAddr, nil)
 	if err != nil {
 		panic(err)
 	}
