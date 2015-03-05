@@ -5,8 +5,8 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	_ "net/http/pprof" // side-effect: installs handlers for /debug/pprof
 	"time"
+	// _ "net/http/pprof" // side-effect: installs handlers for /debug/pprof
 
 	"github.com/glycerine/go-tigertonic"
 )
@@ -16,9 +16,13 @@ type WebServer struct {
 	Done        chan bool // closed when server shutdown.
 
 	requestStop chan bool // private. Users should call Stop().
-	tts         *tigertonic.Server
-	started     bool
-	Cfg         WebServerConfig
+
+	// we use tigertonic because it actually implements graceful stopping;
+	// as opposed to the built-in http library web server.
+	tts *tigertonic.Server
+
+	started bool
+	Cfg     WebServerConfig
 }
 
 type WebServerConfig struct {
@@ -27,7 +31,7 @@ type WebServerConfig struct {
 	Addr string // IP:Port
 }
 
-func NewWebServer(cfg WebServerConfig) *WebServer {
+func NewWebServer(cfg WebServerConfig, mux http.Handler) *WebServer {
 
 	// get an available port
 	if cfg.Port == 0 {
@@ -46,8 +50,9 @@ func NewWebServer(cfg WebServerConfig) *WebServer {
 		requestStop: make(chan bool),
 	}
 
-	s.tts = tigertonic.NewServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
-	//s.Start()
+	s.tts = tigertonic.NewServer(s.Cfg.Addr, mux)
+	//s.tts = tigertonic.NewServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
+
 	return s
 }
 

@@ -1,7 +1,6 @@
 package pelicantun
 
 import (
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -11,29 +10,167 @@ import (
 	"time"
 )
 
-type ReverseProxy struct {
-	Cfg ReverseProxyConfig
+type addr struct {
+	Ip     string
+	Port   int
+	IpPort string // Ip:Port
 }
 
 type ReverseProxyConfig struct {
-	destIP     string
-	destPort   string
-	destAddr   string
-	listenAddr string
+	Listen addr
+	Dest   addr
+}
+
+// one ReverseProxy can contain many tunnels
+type ReverseProxy struct {
+	Cfg              ReverseProxyConfig
+	Done             chan bool
+	ReqStop          chan bool
+	HttpListenerDone chan bool
+	web              *WebServer
+
+	packetQueue chan tunnelPacket
+	createQueue chan *tunnel
+}
+
+func (p *ReverseProxy) Stop() {
+	p.ReqStop <- true
+	<-p.Done
+}
+
+func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
+	return &ReverseProxy{
+		Cfg:              cfg,
+		Done:             make(chan bool),
+		ReqStop:          make(chan bool),
+		HttpListenerDone: make(chan bool),
+		packetQueue:      make(chan tunnelPacket),
+		createQueue:      make(chan *tunnel),
+	}
+}
+
+func (s *ReverseProxy) Start() {
+
+	// start external http listener
+	s.ListenAndServe()
+
+	// start processing loop
+	go func() {
+		po("ReverseProxy::Start(), aka tunnelMuxer started\n")
+		tunnelMap := make(map[string]*tunnel)
+		for {
+			select {
+			case pp := <-s.packetQueue:
+				key := make([]byte, KeyLen)
+				// read key
+				//n, err := pp.req.Body.Read(key)
+				if len(pp.body) < KeyLen {
+					log.Printf("Couldn't read key, not enough bytes in body. len(body) = %d\n", len(pp.body))
+					continue
+				}
+				copy(key, pp.body)
+
+				po("tunnelMuxer: from pp <- packetQueue, we read key '%x'\n", key)
+				// find tunnel
+				p, ok := tunnelMap[string(key)]
+				if !ok {
+					log.Printf("Couldn't find tunnel for key = '%x'", key)
+					continue
+				}
+				// handle
+				po("tunnelMuxer found tunnel for key '%x'\n", key)
+				p.receiveOnePacket(pp)
+
+			case p := <-s.createQueue:
+				po("tunnelMuxer: got p=%p on <-createQueue\n", p)
+				tunnelMap[p.key] = p
+				po("tunnelMuxer: after adding key '%x', tunnelMap is now: '%#v'\n", p.key, tunnelMap)
+
+			case <-s.ReqStop:
+				s.web.Stop()
+				close(s.Done)
+				return
+			}
+		}
+		po("tunnelMuxer done\n")
+	}()
+}
+
+func (s *ReverseProxy) ListenAndServe() {
+
+	// packetHandler
+	packetHandler := func(c http.ResponseWriter, r *http.Request) {
+		body, err := ioutil.ReadAll(r.Body)
+		panicOn(err)
+		po("top level handler(): in '/' and '/ping' handler, packet len without key: %d: making new tunnelPacket, http.Request r = '%#v'. r.Body = '%s'\n", len(body)-KeyLen, *r, string(body))
+
+		pp := tunnelPacket{
+			resp:    c,
+			request: r,
+			body:    body, // includes key of KeyLen in prefix
+			done:    make(chan bool),
+		}
+		s.packetQueue <- pp
+		<-pp.done // wait until done before returning, as this will return anything written to c to the client.
+	}
+
+	// createHandler
+	createHandler := func(c http.ResponseWriter, r *http.Request) {
+
+		_, err := ioutil.ReadAll(r.Body)
+		r.Body.Close()
+		if err != nil {
+			http.Error(c, "Could not read r.Body",
+				http.StatusInternalServerError)
+			return
+		}
+
+		key := genKey()
+		po("in createhandler(): Server::createHandler generated key '%s'\n", key)
+
+		p, err := NewTunnel(key, s.Cfg.Dest.IpPort)
+		if err != nil {
+			http.Error(c, "Could not connect",
+				http.StatusInternalServerError)
+			return
+		}
+		po("Server::createHandler about to send createQueue <- p, where p = %p\n", p)
+		s.createQueue <- p
+		po("Server::createHandler(): sent createQueue <- p.\n")
+
+		c.Write([]byte(key))
+		po("Server::createHandler done.\n")
+	}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", packetHandler)
+	mux.HandleFunc("/create", createHandler)
+
+	webcfg := WebServerConfig{IP: s.Cfg.Listen.Ip, Port: s.Cfg.Listen.Port}
+	s.web = NewWebServer(webcfg, mux)
+	s.web.Start()
+
 }
 
 const (
 	readTimeoutMsec = 1000
 )
 
-type proxy struct {
-	C         chan proxyPacket
+// a tunnel represents a 1:1, one client to one server connection.
+// a ReverseProxy can have many of these.
+type tunnel struct {
+	C chan tunnelPacket
+
+	// server issues a unique key for the connection, which allows multiplexing
+	// of multiple client connections from this one ip if need be.
+	// The ssh integrity checks inside the tunnel prevent malicious tampering.
 	key       string
 	conn      net.Conn
 	recvCount int
 }
 
-type proxyPacket struct {
+type tunnelPacket struct {
 	resp    http.ResponseWriter
 	request *http.Request
 	body    []byte
@@ -43,9 +180,13 @@ type proxyPacket struct {
 // print out shortcut
 var po = VPrintf
 
-func NewProxy(key, destAddr string) (p *proxy, err error) {
-	po("starting with NewProxy\n")
-	p = &proxy{C: make(chan proxyPacket), key: key, recvCount: 0}
+func NewTunnel(key, destAddr string) (p *tunnel, err error) {
+	po("starting with NewTunnel\n")
+	p = &tunnel{
+		C:         make(chan tunnelPacket),
+		key:       key,
+		recvCount: 0,
+	}
 	log.Println("Attempting connect", destAddr)
 	p.conn, err = net.Dial("tcp", destAddr)
 	panicOn(err)
@@ -54,27 +195,27 @@ func NewProxy(key, destAddr string) (p *proxy, err error) {
 	panicOn(err)
 
 	log.Println("ResponseWriter directed to ", destAddr)
-	po("done with NewProxy\n")
+	po("done with NewTunnel\n")
 	return
 }
 
-func (p *proxy) handle(pp proxyPacket) {
+func (p *tunnel) receiveOnePacket(pp tunnelPacket) {
 	p.recvCount++
-	po("\n ====================\n server proxy.recvCount = %d    len(pp.body)= %d\n ================\n", p.recvCount, len(pp.body))
+	po("\n ====================\n server tunnel.recvCount = %d    len(pp.body)= %d\n ================\n", p.recvCount, len(pp.body))
 
-	po("in proxy::handle(pp) with pp = '%#v'\n", pp)
+	po("in tunnel::handle(pp) with pp = '%#v'\n", pp)
 	// read from the request body and write to the ResponseWriter
 	writeMe := pp.body[KeyLen:]
 	n, err := p.conn.Write(writeMe)
 	if n != len(writeMe) {
-		log.Printf("proxy::handle(pp): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pp.body), err)
+		log.Printf("tunnel::handle(pp): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pp.body), err)
 	} else {
-		po("proxy::handle(pp): wrote all %d bytes of writeMe to the final (sshd server) connection: '%s'.", len(writeMe), string(writeMe))
+		po("tunnel::handle(pp): wrote all %d bytes of writeMe to the final (sshd server) connection: '%s'.", len(writeMe), string(writeMe))
 	}
 	pp.request.Body.Close()
 	if err == io.EOF {
 		p.conn = nil
-		log.Printf("proxy::handle(pp): EOF for key '%x'", p.key)
+		log.Printf("tunnel::handle(pp): EOF for key '%x'", p.key)
 		return
 	}
 	// read out of the buffer and write it to conn
@@ -97,110 +238,9 @@ func (p *proxy) handle(pp proxyPacket) {
 	}
 
 	// don't panicOn(err)
-	log.Printf("proxy::handle(pp): io.Copy into pp.resp from p.conn moved %d bytes", n64)
+	log.Printf("tunnel::handle(pp): io.Copy into pp.resp from p.conn moved %d bytes", n64)
 	pp.done <- true
-	po("proxy::handle(pp) done.\n")
-}
-
-var queue = make(chan proxyPacket)
-var createQueue = make(chan *proxy)
-
-func handler(c http.ResponseWriter, r *http.Request) {
-	body, err := ioutil.ReadAll(r.Body)
-	panicOn(err)
-	po("top level handler(): in '/' and '/ping' handler, packet len without key: %d: making new proxyPacket, http.Request r = '%#v'. r.Body = '%s'\n", len(body)-KeyLen, *r, string(body))
-
-	pp := proxyPacket{
-		resp:    c,
-		request: r,
-		body:    body, // includes key of KeyLen in prefix
-		done:    make(chan bool),
-	}
-	queue <- pp
-	<-pp.done // wait until done before returning, as this will return anything written to c to the client.
-}
-
-func (s *ReverseProxy) createHandler(c http.ResponseWriter, r *http.Request) {
-	// fix destAddr on server side to prevent being a transport for other actions.
-
-	// destAddr used to be here, but no more. Still have to close the body.
-	_, err := ioutil.ReadAll(r.Body)
-	r.Body.Close()
-	if err != nil {
-		http.Error(c, "Could not read destAddr",
-			http.StatusInternalServerError)
-		return
-	}
-
-	key := genKey()
-	po("in createhandler(): Server::createHandler generated key '%s'\n", key)
-
-	p, err := NewProxy(key, s.Cfg.destAddr)
-	if err != nil {
-		http.Error(c, "Could not connect",
-			http.StatusInternalServerError)
-		return
-	}
-	po("Server::createHandler about to send createQueue <- p, where p = %p\n", p)
-	createQueue <- p
-	po("Server::createHandler(): sent createQueue <- p.\n")
-
-	c.Write([]byte(key))
-	po("Server::createHandler done.\n")
-}
-
-func proxyMuxer() {
-	po("proxyMuxer started\n")
-	proxyMap := make(map[string]*proxy)
-	for {
-		select {
-		case pp := <-queue:
-			key := make([]byte, KeyLen)
-			// read key
-			//n, err := pp.req.Body.Read(key)
-			if len(pp.body) < KeyLen {
-				log.Printf("Couldn't read key, not enough bytes in body. len(body) = %d\n", len(pp.body))
-				continue
-			}
-			copy(key, pp.body)
-
-			po("proxyMuxer: from pp <- queue, we read key '%x'\n", key)
-			// find proxy
-			p, ok := proxyMap[string(key)]
-			if !ok {
-				log.Printf("Couldn't find proxy for key = '%x'", key)
-				continue
-			}
-			// handle
-			po("proxyMuxer found proxy for key '%x'\n", key)
-			p.handle(pp)
-		case p := <-createQueue:
-			po("proxyMuxer: got p=%p on <-createQueue\n", p)
-			proxyMap[p.key] = p
-			po("proxyMuxer: after adding key '%x', proxyMap is now: '%#v'\n", p.key, proxyMap)
-		}
-	}
-	po("proxyMuxer done\n")
-}
-
-func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
-	return &ReverseProxy{
-		Cfg: cfg,
-	}
-}
-
-func (s *ReverseProxy) ListenAndServe() {
-
-	go proxyMuxer()
-
-	http.HandleFunc("/", handler)
-	http.HandleFunc("/create", s.createHandler)
-	fmt.Printf("about to ListenAndServer on listenAddr '%#v'. Ultimate destAddr: '%s'\n",
-		s.Cfg.listenAddr, s.Cfg.destAddr)
-	err := http.ListenAndServe(s.Cfg.listenAddr, nil)
-	if err != nil {
-		panic(err)
-	}
+	po("tunnel::handle(pp) done.\n")
 }
 
 func genKey() string {
