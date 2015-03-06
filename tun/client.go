@@ -41,11 +41,32 @@ type PelicanSocksProxy struct {
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
-	return &PelicanSocksProxy{
+
+	p := &PelicanSocksProxy{
 		Cfg:     cfg,
 		ReqStop: make(chan bool),
 		Done:    make(chan bool),
 	}
+	p.SetDefaultPorts()
+	return p
+}
+
+func (f *PelicanSocksProxy) SetDefaultPorts() {
+	if f.Cfg.Listen.Port == 0 {
+		f.Cfg.Listen.Port = GetAvailPort()
+	}
+	if f.Cfg.Listen.Ip == "" {
+		f.Cfg.Listen.Ip = "127.0.0.1"
+	}
+	f.Cfg.Listen.SetIpPort()
+
+	if f.Cfg.Dest.Port == 0 {
+		f.Cfg.Dest.Port = 80
+	}
+	if f.Cfg.Dest.Ip == "" {
+		f.Cfg.Dest.Ip = "127.0.0.1"
+	}
+	f.Cfg.Dest.SetIpPort()
 }
 
 func (f *PelicanSocksProxy) Start() {

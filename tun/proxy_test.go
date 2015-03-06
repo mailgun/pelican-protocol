@@ -23,16 +23,22 @@ func TestSocksProxyTalksToReverseProxy002(t *testing.T) {
 			rev.Stop()
 			cv.So(PortIsBound(rev.Cfg.Listen.IpPort), cv.ShouldEqual, false)
 		}()
+
+		fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
+			Dest: addr{
+				Ip:   rev.Cfg.Listen.Ip,
+				Port: rev.Cfg.Listen.Port,
+			},
+		})
+		fwd.Start()
+		fmt.Printf("fwd proxy chose listen port = '%#v'\n", fwd.Cfg)
+		cv.So(PortIsBound(fwd.Cfg.Listen.IpPort), cv.ShouldEqual, true)
+
+		defer func() {
+			fwd.Stop()
+			cv.So(PortIsBound(fwd.Cfg.Listen.IpPort), cv.ShouldEqual, false)
+		}()
 		/*
-			fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{})
-			fwd.Start()
-			cv.So(PortIsBound(fwd.Cfg.Listen.IpPort), cv.ShouldEqual, true)
-
-			defer func() {
-				fwd.Stop()
-				cv.So(PortIsBound(fwd.Cfg.Listen.IpPort), cv.ShouldEqual, false)
-			}()
-
 			by, err := FetchUrl("http://" + rev.Cfg.Listen.IpPort + "/")
 
 			cv.So(err, cv.ShouldEqual, nil)
