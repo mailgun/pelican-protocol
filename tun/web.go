@@ -43,7 +43,7 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux) *WebServer {
 	if cfg.Listen.Ip == "" {
 		cfg.Listen.Ip = "127.0.0.1"
 	}
-	cfg.Listen.IpPort = fmt.Sprintf("%s:%d", cfg.Listen.Ip, cfg.Listen.Port)
+	cfg.Listen.SetIpPort()
 	VPrintf("hey hey: starting webserver on '%s'\n", cfg.Listen.IpPort)
 
 	s := &WebServer{
