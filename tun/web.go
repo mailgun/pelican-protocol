@@ -22,26 +22,29 @@ type WebServer struct {
 	tts *tigertonic.Server
 
 	started bool
+	stopped bool
 	Cfg     WebServerConfig
 }
 
 type WebServerConfig struct {
-	IP   string
-	Port int
-	Addr string // IP:Port
+	Listen addr
 }
 
-func NewWebServer(cfg WebServerConfig, mux http.Handler) *WebServer {
+func NewWebServer(cfg WebServerConfig, mux *http.ServeMux) *WebServer {
+
+	if mux == nil {
+		mux = http.NewServeMux()
+	}
 
 	// get an available port
-	if cfg.Port == 0 {
-		cfg.Port = GetAvailPort()
+	if cfg.Listen.Port == 0 {
+		cfg.Listen.Port = GetAvailPort()
 	}
-	if cfg.IP == "" {
-		cfg.IP = "127.0.0.1"
+	if cfg.Listen.Ip == "" {
+		cfg.Listen.Ip = "127.0.0.1"
 	}
-	cfg.Addr = fmt.Sprintf("%s:%d", cfg.IP, cfg.Port)
-	VPrintf("hey hey: starting webserver on '%s'\n", cfg.Addr)
+	cfg.Listen.IpPort = fmt.Sprintf("%s:%d", cfg.Listen.Ip, cfg.Listen.Port)
+	VPrintf("hey hey: starting webserver on '%s'\n", cfg.Listen.IpPort)
 
 	s := &WebServer{
 		Cfg:         cfg,
@@ -50,7 +53,7 @@ func NewWebServer(cfg WebServerConfig, mux http.Handler) *WebServer {
 		requestStop: make(chan bool),
 	}
 
-	s.tts = tigertonic.NewServer(s.Cfg.Addr, mux)
+	s.tts = tigertonic.NewServer(s.Cfg.Listen.IpPort, mux)
 	//s.tts = tigertonic.NewServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
 
 	return s
@@ -67,21 +70,27 @@ func (s *WebServer) Start() {
 		if nil != err {
 			//log.Println(err) // accept tcp 127.0.0.1:3000: use of closed network connection
 		}
+		s.stopped = true
 		close(s.Done)
 	}()
 
-	WaitUntilServerUp(s.Cfg.Addr)
+	WaitUntilServerUp(s.Cfg.Listen.IpPort)
 	close(s.ServerReady)
 }
 
 func (s *WebServer) Stop() {
+	if s.stopped || s.IsStopRequested() {
+		// not stopping races here, just preventing
+		// panic on two serial Stops() under web_test.go failure situation.
+		return
+	}
 	close(s.requestStop)
 	s.tts.Close()
 	VPrintf("in WebServer::Stop() after s.tts.Close()\n")
 	<-s.Done
-	VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Addr)
+	VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
 
-	WaitUntilServerDown(s.Cfg.Addr)
+	WaitUntilServerDown(s.Cfg.Listen.IpPort)
 }
 
 func (s *WebServer) IsStopRequested() bool {

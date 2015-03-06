@@ -1,48 +1,39 @@
 package pelicantun_test
 
 import (
-	"strings"
+	"fmt"
+	"net/http"
 	"testing"
 
-	. "github.com/mailgun/pelican-protocol/tun"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	tun "github.com/mailgun/pelican-protocol/tun"
+	cv "github.com/smartystreets/goconvey/convey"
 )
 
-// couldn't get goconvey to compile this simple test, so using Ginkgo here.
+func TestWebServer888(t *testing.T) {
 
-func TestWebServer(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Web Server Suite")
-}
+	mux := http.NewServeMux()
 
-var _ = Describe("Web Server Suite", func() {
-
-	s := NewWebServer(WebServerConfig{}, nil)
-	s.Start()
-
-	Describe("NewWebServer functions", func() {
-		Context("Start() should bring up a debug web-server", func() {
-			It("and should bind an unbound port automatically, and be servring debug/pprof", func() {
-
-				Expect(PortIsBound(s.Cfg.Addr)).To(Equal(true))
-
-				by, err := FetchUrl("http://" + s.Cfg.Addr + "/debug/pprof")
-
-				Expect(err == nil).To(Equal(true))
-				//fmt.Printf("by:'%s'\n", string(by))
-				Expect(strings.HasPrefix(string(by), `<html>
-	   <head>
-	   <title>/debug/pprof/</title>
-	   </head>
-	   /debug/pprof/<br>
-	   <br>`)).To(Equal(true))
-			})
-			It("Stop() should halt the web server.", func() {
-				s.Stop()
-				Expect(PortIsBound(s.Cfg.Addr)).To(Equal(false))
-			})
-		})
+	// ping allows our test machinery to function
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		r.Body.Close()
+		fmt.Fprintf(w, "pong")
 	})
-})
+
+	s := tun.NewWebServer(tun.WebServerConfig{}, mux)
+	s.Start()
+	defer s.Stop()
+
+	cv.Convey("NewWebServer followed by Start() should bring up a web-server", t, func() {
+		cv.So(tun.PortIsBound(s.Cfg.Listen.IpPort), cv.ShouldEqual, true)
+
+		by, err := tun.FetchUrl("http://" + s.Cfg.Listen.IpPort + "/ping")
+		cv.So(err, cv.ShouldEqual, nil)
+		//fmt.Printf("by:'%s'\n", string(by))
+		cv.So(string(by), cv.ShouldEqual, "pong")
+
+		fmt.Printf("\n       and Stop() should halt the web server.\n")
+		s.Stop()
+		cv.So(tun.PortIsBound(s.Cfg.Listen.IpPort), cv.ShouldEqual, false)
+	})
+
+}

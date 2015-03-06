@@ -102,6 +102,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	// packetHandler
 	packetHandler := func(c http.ResponseWriter, r *http.Request) {
 		body, err := ioutil.ReadAll(r.Body)
+		r.Body.Close()
 		panicOn(err)
 		po("top level handler(): in '/' and '/ping' handler, packet len without key: %d: making new tunnelPacket, http.Request r = '%#v'. r.Body = '%s'\n", len(body)-KeyLen, *r, string(body))
 
@@ -148,7 +149,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	mux.HandleFunc("/", packetHandler)
 	mux.HandleFunc("/create", createHandler)
 
-	webcfg := WebServerConfig{IP: s.Cfg.Listen.Ip, Port: s.Cfg.Listen.Port}
+	webcfg := WebServerConfig{Listen: addr{Ip: s.Cfg.Listen.Ip, Port: s.Cfg.Listen.Port}}
 	s.web = NewWebServer(webcfg, mux)
 	fmt.Printf("\n about to w.web.Start() with webcfg = '%#v'\n", webcfg)
 	s.web.Start()
@@ -214,7 +215,7 @@ func (p *tunnel) receiveOnePacket(pp tunnelPacket) {
 	} else {
 		po("tunnel::handle(pp): wrote all %d bytes of writeMe to the final (sshd server) connection: '%s'.", len(writeMe), string(writeMe))
 	}
-	pp.request.Body.Close()
+	// done in packetHandler now: pp.request.Body.Close()
 	if err == io.EOF {
 		p.conn = nil
 		log.Printf("tunnel::handle(pp): EOF for key '%x'", p.key)
@@ -241,7 +242,7 @@ func (p *tunnel) receiveOnePacket(pp tunnelPacket) {
 
 	// don't panicOn(err)
 	log.Printf("tunnel::handle(pp): io.Copy into pp.resp from p.conn moved %d bytes", n64)
-	pp.done <- true
+	close(pp.done)
 	po("tunnel::handle(pp) done.\n")
 }
 
