@@ -22,34 +22,47 @@ func makeReadChan(r io.Reader, bufSize int) chan []byte {
 			if err != nil {
 				return
 			}
-			//if n > 0 {
 			read <- b[0:n]
-			//}
 		}
 	}()
 	return read
 }
 
-type ForwardProxy struct {
-	listenAddr       string
-	revProxyAddr     string
+type PelicanSocksProxyConfig struct {
+	Listen           addr
+	Dest             addr
 	tickIntervalMsec int
 }
 
-func NewForwardProxy(listenAddr string, revProxAddr string, tickIntervalMsec int) *ForwardProxy {
-	return &ForwardProxy{
-		listenAddr:       listenAddr,
-		revProxyAddr:     revProxAddr, // http server's address
-		tickIntervalMsec: tickIntervalMsec,
+type PelicanSocksProxy struct {
+	Cfg     PelicanSocksProxyConfig
+	ReqStop chan bool
+	Done    chan bool
+}
+
+func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
+	return &PelicanSocksProxy{
+		Cfg:     cfg,
+		ReqStop: make(chan bool),
+		Done:    make(chan bool),
 	}
 }
 
-func (f *ForwardProxy) ListenAndServe() error {
-	listener, err := net.Listen("tcp", f.listenAddr)
+func (f *PelicanSocksProxy) Start() {
+	go f.ListenAndServe()
+}
+
+func (f *PelicanSocksProxy) Stop() {
+	f.ReqStop <- true
+	close(f.Done)
+}
+
+func (f *PelicanSocksProxy) ListenAndServe() error {
+	listener, err := net.Listen("tcp", f.Cfg.Listen.IpPort)
 	if err != nil {
 		panic(err)
 	}
-	log.Printf("listen on '%v', with revProxAddr '%v'", f.listenAddr, f.revProxyAddr)
+	log.Printf("listen on '%v', with revProxAddr '%v'", f.Cfg.Listen.IpPort, f.Cfg.Dest.IpPort)
 
 	conn, err := listener.Accept()
 	if err != nil {
@@ -62,10 +75,10 @@ func (f *ForwardProxy) ListenAndServe() error {
 	sendCount := 0
 
 	// initiate new session and read key
-	log.Println("Attempting connect HttpTun Server.", f.revProxyAddr)
+	log.Println("Attempting connect HttpTun Server.", f.Cfg.Dest.IpPort)
 	//buf.Write([]byte(*destAddr))
 	resp, err := http.Post(
-		"http://"+f.revProxyAddr+"/create",
+		"http://"+f.Cfg.Dest.IpPort+"/create",
 		"text/plain",
 		buf)
 	panicOn(err)
@@ -76,11 +89,14 @@ func (f *ForwardProxy) ListenAndServe() error {
 	log.Printf("client main(): after Post('/create') we got ResponseWriter with key = '%x'", key)
 
 	// ticker to set a rate at which to hit the server
-	tick := time.NewTicker(time.Duration(int64(f.tickIntervalMsec)) * time.Millisecond)
+	tick := time.NewTicker(time.Duration(int64(f.Cfg.tickIntervalMsec)) * time.Millisecond)
 	read := makeReadChan(conn, bufSize)
 	buf.Reset()
 	for {
 		select {
+		case <-f.ReqStop:
+			close(f.Done)
+			return nil
 		case b := <-read:
 			// fill buf here
 			po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
@@ -95,7 +111,7 @@ func (f *ForwardProxy) ListenAndServe() error {
 			req := bytes.NewBuffer(key)
 			buf.WriteTo(req)
 			resp, err := http.Post(
-				"http://"+f.revProxyAddr+"/ping",
+				"http://"+f.Cfg.Dest.IpPort+"/ping",
 				"application/octet-stream",
 				req)
 			if err != nil && err != io.EOF {

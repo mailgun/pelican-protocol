@@ -1,34 +1,41 @@
 package pelicantun
 
 import (
+	"fmt"
 	"testing"
 
 	cv "github.com/smartystreets/goconvey/convey"
 )
 
-func TestSocksProxyTalksToReverseProxy(t *testing.T) {
-	cv.Convey("Given a ForwardProxy and a ReverseProxy, they should communicate over http", t, func() {
+func TestSocksProxyTalksToReverseProxy002(t *testing.T) {
 
-		rev := NewRevServer(RevServerConfig{})
-		rev.Start()
-		cv.So(PortIsBound(rev.Cfg.Addr), cv.ShouldEqual, true)
+	fmt.Printf("\n before NewReverseProxy\n")
+	rev := NewReverseProxy(ReverseProxyConfig{})
+	fmt.Printf("\n done with NewReverseProxy\n")
+	rev.Start()
+	fmt.Printf("\n done with rev.Start()\n")
+
+	cv.Convey("\n Given a ForwardProxy and a ReverseProxy, they should communicate over http\n\n", t, func() {
+
+		cv.So(PortIsBound(rev.Cfg.Listen.IpPort), cv.ShouldEqual, true)
 
 		defer func() {
 			rev.Stop()
-			cv.So(PortIsBound(rev.Cfg.Addr), cv.ShouldEqual, false)
+			cv.So(PortIsBound(rev.Cfg.Listen.IpPort), cv.ShouldEqual, false)
 		}()
 
-		fwd := NewFwdServer(FwdServerConfig{})
+		fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{})
 		fwd.Start()
-		cv.So(PortIsBound(fwd.Cfg.Addr), cv.ShouldEqual, true)
+		cv.So(PortIsBound(fwd.Cfg.Listen.IpPort), cv.ShouldEqual, true)
 
 		defer func() {
 			fwd.Stop()
-			cv.So(PortIsBound(fwd.Cfg.Addr), cv.ShouldEqual, false)
+			cv.So(PortIsBound(fwd.Cfg.Listen.IpPort), cv.ShouldEqual, false)
 		}()
 
-		by, err := FetchUrl("http://" + rev.Cfg.Addr + "/")
+		by, err := FetchUrl("http://" + rev.Cfg.Listen.IpPort + "/")
 
-		cv.So(true, cv.ShouldEqual, true)
+		cv.So(err, cv.ShouldEqual, nil)
+		cv.So(by, cv.ShouldResemble, []byte("some output"))
 	})
 }

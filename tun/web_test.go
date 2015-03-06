@@ -19,7 +19,7 @@ func TestWebServer(t *testing.T) {
 
 var _ = Describe("Web Server Suite", func() {
 
-	s := NewWebServer(WebServerConfig{})
+	s := NewWebServer(WebServerConfig{}, nil)
 	s.Start()
 
 	Describe("NewWebServer functions", func() {
@@ -33,11 +33,11 @@ var _ = Describe("Web Server Suite", func() {
 				Expect(err == nil).To(Equal(true))
 				//fmt.Printf("by:'%s'\n", string(by))
 				Expect(strings.HasPrefix(string(by), `<html>
-<head>
-<title>/debug/pprof/</title>
-</head>
-/debug/pprof/<br>
-<br>`)).To(Equal(true))
+	   <head>
+	   <title>/debug/pprof/</title>
+	   </head>
+	   /debug/pprof/<br>
+	   <br>`)).To(Equal(true))
 			})
 			It("Stop() should halt the web server.", func() {
 				s.Stop()

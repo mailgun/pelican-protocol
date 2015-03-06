@@ -41,7 +41,7 @@ func NewWebServer(cfg WebServerConfig, mux http.Handler) *WebServer {
 		cfg.IP = "127.0.0.1"
 	}
 	cfg.Addr = fmt.Sprintf("%s:%d", cfg.IP, cfg.Port)
-	VPrintf("starting webserver on '%s'\n", cfg.Addr)
+	VPrintf("hey hey: starting webserver on '%s'\n", cfg.Addr)
 
 	s := &WebServer{
 		Cfg:         cfg,

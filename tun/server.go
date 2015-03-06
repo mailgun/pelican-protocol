@@ -1,6 +1,7 @@
 package pelicantun
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -10,12 +11,6 @@ import (
 	"time"
 )
 
-type addr struct {
-	Ip     string
-	Port   int
-	IpPort string // Ip:Port
-}
-
 type ReverseProxyConfig struct {
 	Listen addr
 	Dest   addr
@@ -23,11 +18,10 @@ type ReverseProxyConfig struct {
 
 // one ReverseProxy can contain many tunnels
 type ReverseProxy struct {
-	Cfg              ReverseProxyConfig
-	Done             chan bool
-	ReqStop          chan bool
-	HttpListenerDone chan bool
-	web              *WebServer
+	Cfg     ReverseProxyConfig
+	Done    chan bool
+	ReqStop chan bool
+	web     *WebServer
 
 	packetQueue chan tunnelPacket
 	createQueue chan *tunnel
@@ -39,20 +33,27 @@ func (p *ReverseProxy) Stop() {
 }
 
 func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
+
+	// get an available port
+	if cfg.Listen.Port == 0 {
+		cfg.Listen.Port = GetAvailPort()
+	}
+	if cfg.Listen.Ip == "" {
+		cfg.Listen.Ip = "127.0.0.1"
+	}
+
 	return &ReverseProxy{
-		Cfg:              cfg,
-		Done:             make(chan bool),
-		ReqStop:          make(chan bool),
-		HttpListenerDone: make(chan bool),
-		packetQueue:      make(chan tunnelPacket),
-		createQueue:      make(chan *tunnel),
+		Cfg:         cfg,
+		Done:        make(chan bool),
+		ReqStop:     make(chan bool),
+		packetQueue: make(chan tunnelPacket),
+		createQueue: make(chan *tunnel),
 	}
 }
 
 func (s *ReverseProxy) Start() {
 
-	// start external http listener
-	s.ListenAndServe()
+	s.startExternalHttpListener()
 
 	// start processing loop
 	go func() {
@@ -96,7 +97,7 @@ func (s *ReverseProxy) Start() {
 	}()
 }
 
-func (s *ReverseProxy) ListenAndServe() {
+func (s *ReverseProxy) startExternalHttpListener() {
 
 	// packetHandler
 	packetHandler := func(c http.ResponseWriter, r *http.Request) {
@@ -149,6 +150,7 @@ func (s *ReverseProxy) ListenAndServe() {
 
 	webcfg := WebServerConfig{IP: s.Cfg.Listen.Ip, Port: s.Cfg.Listen.Port}
 	s.web = NewWebServer(webcfg, mux)
+	fmt.Printf("\n about to w.web.Start() with webcfg = '%#v'\n", webcfg)
 	s.web.Start()
 
 }

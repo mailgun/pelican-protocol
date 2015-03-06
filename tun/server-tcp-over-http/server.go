@@ -15,7 +15,7 @@ var listenAddr = flag.String("http", fmt.Sprintf("%s:%d", tun.ReverseProxyIp, tu
 
 func main() {
 	flag.Parse()
-
-	s := tun.NewReverseProxy(tun.ReverseProxyConfig{})
-	s.ListenAndServe()
+	s := tun.NewReverseProxy(tun.ReverseProxyConfig{Listen: tun.NewAddr1(*listenAddr)})
+	s.Start()
+	select {}
 }
