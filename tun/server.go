@@ -41,6 +41,14 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 	if cfg.Listen.Ip == "" {
 		cfg.Listen.Ip = "127.0.0.1"
 	}
+	cfg.Listen.SetIpPort()
+
+	if cfg.Dest.Port == 0 {
+		cfg.Dest = NewAddr2("127.0.0.1", 80)
+	}
+	cfg.Dest.SetIpPort()
+
+	fmt.Printf("in NewReverseProxy, cfg = '%#v'\n", cfg)
 
 	return &ReverseProxy{
 		Cfg:         cfg,

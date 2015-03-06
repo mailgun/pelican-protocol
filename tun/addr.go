@@ -16,6 +16,10 @@ func NewAddr2(ip string, port int) addr {
 	}
 }
 
+func (a *addr) SetIpPort() {
+	a.IpPort = fmt.Sprintf("%s:%d", a.Ip, a.Port)
+}
+
 func NewAddr1(ipport string) addr {
 	var ip string
 	var port int
