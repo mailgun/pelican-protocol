@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -140,7 +141,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 
 		p, err := NewTunnel(key, s.Cfg.Dest.IpPort)
 		if err != nil {
-			http.Error(c, "Could not connect",
+			http.Error(c, "Could not connect to destination",
 				http.StatusInternalServerError)
 			return
 		}
@@ -200,7 +201,15 @@ func NewTunnel(key, destAddr string) (p *tunnel, err error) {
 	}
 	log.Println("Attempting connect", destAddr)
 	p.conn, err = net.Dial("tcp", destAddr)
-	panicOn(err)
+	switch err.(type) {
+	case *net.OpError:
+		if strings.HasSuffix(err.Error(), "connection refused") {
+			// could not reach destination
+			return nil, err
+		}
+	default:
+		panicOn(err)
+	}
 
 	err = p.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)

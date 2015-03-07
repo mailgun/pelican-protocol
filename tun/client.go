@@ -2,6 +2,7 @@ package pelicantun
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -12,20 +13,74 @@ import (
 
 const bufSize = 1024
 
-// take a reader, and turn it into a channel of bufSize chunks of []byte
-func makeReadChan(r io.Reader, bufSize int) chan []byte {
-	read := make(chan []byte)
+type ConnReader struct {
+	reader io.Reader
+	readCh chan []byte
+	bufsz  int
+
+	Ready   chan bool
+	ReqStop chan bool
+	Done    chan bool
+	key     string
+}
+
+func NewConnReader(r io.Reader, bufsz int, key string) *ConnReader {
+	re := &ConnReader{
+		reader:  r,
+		readCh:  make(chan []byte, bufsz),
+		bufsz:   bufsz,
+		Ready:   make(chan bool),
+		ReqStop: make(chan bool),
+		Done:    make(chan bool),
+		key:     key,
+	}
+	return re
+}
+
+func (r *ConnReader) IsStopRequested() bool {
+	select {
+	case <-r.ReqStop:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *ConnReader) Stop() {
+	if r.IsStopRequested() {
+		return
+	}
+	close(r.ReqStop)
+	<-r.Done
+}
+
+func (r *ConnReader) Start() {
 	go func() {
+		close(r.Ready)
 		for {
-			b := make([]byte, bufSize)
-			n, err := r.Read(b)
+			b := make([]byte, r.bufsz)
+			n, err := r.reader.Read(b)
 			if err != nil {
+				if !r.IsStopRequested() {
+					close(r.ReqStop)
+				}
+				close(r.Done)
 				return
 			}
-			read <- b[0:n]
+
+			select {
+			case r.readCh <- b[0:n]:
+			case <-r.ReqStop:
+				close(r.Done)
+				return
+			}
+
+			if r.IsStopRequested() {
+				close(r.Done)
+				return
+			}
 		}
 	}()
-	return read
 }
 
 type PelicanSocksProxyConfig struct {
@@ -36,22 +91,29 @@ type PelicanSocksProxyConfig struct {
 
 type PelicanSocksProxy struct {
 	Cfg     PelicanSocksProxyConfig
+	Ready   chan bool
 	ReqStop chan bool
 	Done    chan bool
+
+	Up      *TcpUpstreamReceiver
+	readers []*ConnReader
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
 
 	p := &PelicanSocksProxy{
 		Cfg:     cfg,
+		Ready:   make(chan bool),
 		ReqStop: make(chan bool),
 		Done:    make(chan bool),
+		Up:      NewTcpUpstreamReceiver(cfg.Listen),
+		readers: make([]*ConnReader, 0),
 	}
-	p.SetDefaultPorts()
+	p.SetDefault()
 	return p
 }
 
-func (f *PelicanSocksProxy) SetDefaultPorts() {
+func (f *PelicanSocksProxy) SetDefault() {
 	if f.Cfg.Listen.Port == 0 {
 		f.Cfg.Listen.Port = GetAvailPort()
 	}
@@ -67,90 +129,201 @@ func (f *PelicanSocksProxy) SetDefaultPorts() {
 		f.Cfg.Dest.Ip = "127.0.0.1"
 	}
 	f.Cfg.Dest.SetIpPort()
-}
-
-func (f *PelicanSocksProxy) Start() {
-	go f.ListenAndServe()
+	if f.Cfg.tickIntervalMsec == 0 {
+		f.Cfg.tickIntervalMsec = 250
+	}
 }
 
 func (f *PelicanSocksProxy) Stop() {
-	f.ReqStop <- true
-	close(f.Done)
+	close(f.ReqStop)
+	<-f.Done
+	WaitUntilServerDown(f.Cfg.Listen.IpPort)
 }
 
-func (f *PelicanSocksProxy) ListenAndServe() error {
-	listener, err := net.Listen("tcp", f.Cfg.Listen.IpPort)
-	if err != nil {
-		panic(err)
+type TcpUpstreamReceiver struct {
+	Listen              addr
+	UpstreamTcpConnChan chan net.Conn
+	Ready               chan bool
+	ReqStop             chan bool
+	Done                chan bool
+
+	lsn net.Listener
+}
+
+func NewTcpUpstreamReceiver(a addr) *TcpUpstreamReceiver {
+	r := &TcpUpstreamReceiver{
+		Listen:              a,
+		UpstreamTcpConnChan: make(chan net.Conn),
+		Ready:               make(chan bool),
+		ReqStop:             make(chan bool),
+		Done:                make(chan bool),
 	}
-	log.Printf("listen on '%v', with revProxAddr '%v'", f.Cfg.Listen.IpPort, f.Cfg.Dest.IpPort)
+	a.SetIpPort()
+	return r
+}
 
-	conn, err := listener.Accept()
-	if err != nil {
-		panic(err)
+func (r *TcpUpstreamReceiver) IsStopRequested() bool {
+	select {
+	case <-r.ReqStop:
+		return true
+	default:
+		return false
 	}
-	log.Println("accept conn", "localAddr.", conn.LocalAddr(), "remoteAddr.", conn.RemoteAddr())
+}
 
-	buf := new(bytes.Buffer)
+func (r *TcpUpstreamReceiver) Start() error {
+	var err error
+	r.lsn, err = net.Listen("tcp", r.Listen.IpPort)
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			if r.IsStopRequested() {
+				r.lsn.Close()
+				close(r.Done)
+				return
+			}
 
-	sendCount := 0
+			log.Printf("GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
 
-	// initiate new session and read key
-	log.Println("Attempting connect HttpTun Server.", f.Cfg.Dest.IpPort)
-	//buf.Write([]byte(*destAddr))
-	resp, err := http.Post(
-		"http://"+f.Cfg.Dest.IpPort+"/create",
-		"text/plain",
-		buf)
-	panicOn(err)
-	key, err := ioutil.ReadAll(resp.Body)
-	panicOn(err)
-	resp.Body.Close()
+			conn, err := r.lsn.Accept()
+			if err != nil {
+				if r.IsStopRequested() {
+					r.lsn.Close()
+					close(r.Done)
+					return
+				}
 
-	log.Printf("client main(): after Post('/create') we got ResponseWriter with key = '%x'", key)
-
-	// ticker to set a rate at which to hit the server
-	tick := time.NewTicker(time.Duration(int64(f.Cfg.tickIntervalMsec)) * time.Millisecond)
-	read := makeReadChan(conn, bufSize)
-	buf.Reset()
-	for {
-		select {
-		case <-f.ReqStop:
-			close(f.Done)
-			return nil
-		case b := <-read:
-			// fill buf here
-			po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
-			buf.Write(b)
-			po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
-
-		case <-tick.C:
-			sendCount++
-			po("\n ====================\n client sendCount = %d\n ====================\n", sendCount)
-			po("client: sendCount %d, got tick.C. key as always(?) = '%x'. buf is now size %d\n", sendCount, key, buf.Len())
-			// write buf to new http request, starting with key
-			req := bytes.NewBuffer(key)
-			buf.WriteTo(req)
-			resp, err := http.Post(
-				"http://"+f.Cfg.Dest.IpPort+"/ping",
-				"application/octet-stream",
-				req)
-			if err != nil && err != io.EOF {
-				log.Println(err.Error())
+				log.Printf("GetTCPConnection error duing listener.Accept(): '%s'\n", err)
 				continue
 			}
 
-			// write http response response to conn
+			log.Printf("GetTcpUpstreamConnection accepted local connection '%v' from remote '%v'\n", conn.LocalAddr(), conn.RemoteAddr())
 
-			// we take apart the io.Copy to print out the response for debugging.
-			//_, err = io.Copy(conn, resp.Body)
-
-			body, err := ioutil.ReadAll(resp.Body)
-			panicOn(err)
-			po("client: resp.Body = '%s'\n", string(body))
-			_, err = conn.Write(body)
-			panicOn(err)
-			resp.Body.Close()
+			// avoid deadlock on shutdown, use select around the send.
+			select {
+			case r.UpstreamTcpConnChan <- conn:
+			case <-r.ReqStop:
+				r.lsn.Close()
+				close(r.Done)
+				return
+			}
 		}
+	}()
+	return nil
+}
+
+func (r *TcpUpstreamReceiver) Stop() {
+	if r.IsStopRequested() {
+		return
 	}
+	close(r.ReqStop)
+	r.lsn.Close()
+	<-r.Done
+}
+
+func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
+
+	// initiate new session and read key
+	url := fmt.Sprintf("http://%s/create", f.Cfg.Dest.IpPort)
+	log.Printf("ConnectDownstreamHttp: attempting POST to '%s'\n", url)
+	resp, err := http.Post(
+		url,
+		"text/plain",
+		&bytes.Buffer{})
+
+	if err != nil {
+		return "", fmt.Errorf("ConnectDownstreamHttp: error during Post to '%s': '%s'", url, err)
+	}
+	key, err := ioutil.ReadAll(resp.Body)
+	panicOn(err)
+	resp.Body.Close()
+	log.Printf("client main(): after Post('/create') we got ResponseWriter with key = '%x'", key)
+
+	return string(key), nil
+}
+
+func (f *PelicanSocksProxy) Start() error {
+	err := f.Up.Start()
+	if err != nil {
+		panic(fmt.Errorf("could not start f.Up, our TcpUpstreamReceiver; error: '%s'", err))
+	}
+
+	// will this bother our server to get a hang up right away? it shouldn't.
+	WaitUntilServerUp(f.Cfg.Listen.IpPort)
+
+	// ticker to set a rate at which to hit the server
+	tick := time.NewTicker(time.Duration(int64(f.Cfg.tickIntervalMsec)) * time.Millisecond)
+
+	buf := new(bytes.Buffer)
+	buf.Reset()
+
+	sendCount := 0
+
+	var upConn net.Conn
+	go func() {
+		for {
+			select {
+
+			case upConn = <-f.Up.UpstreamTcpConnChan:
+
+				key, err := f.ConnectDownstreamHttp()
+				if err != nil {
+					log.Printf("got connection upstream from upConn.RemoteAddr('%s'), but could not connect downstream: '%s'\n", upConn.RemoteAddr(), err)
+					upConn.Close()
+					continue
+				}
+				if key == "" {
+					panic("empty key back but no error from f.ConnectDownstreamHttp()")
+				}
+
+				connReader := NewConnReader(upConn, bufSize, key)
+				connReader.Start()
+				f.readers = append(f.readers, connReader)
+
+			case <-f.ReqStop:
+				f.Up.Stop()
+				for _, reader := range f.readers {
+					reader.Stop()
+				}
+				close(f.Done)
+				return
+			case b := <-read:
+				// fill buf here
+				po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
+				buf.Write(b)
+				po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
+
+			case <-tick.C:
+				sendCount++
+				po("\n ====================\n client sendCount = %d\n ====================\n", sendCount)
+				po("client: sendCount %d, got tick.C. key as always(?) = '%x'. buf is now size %d\n", sendCount, key, buf.Len())
+				// write buf to new http request, starting with key
+				req := bytes.NewBuffer(key)
+				buf.WriteTo(req)
+				resp, err := http.Post(
+					"http://"+f.Cfg.Dest.IpPort+"/ping",
+					"application/octet-stream",
+					req)
+				if err != nil && err != io.EOF {
+					log.Println(err.Error())
+					continue
+				}
+
+				// write http response response to conn
+
+				// we take apart the io.Copy to print out the response for debugging.
+				//_, err = io.Copy(conn, resp.Body)
+
+				body, err := ioutil.ReadAll(resp.Body)
+				panicOn(err)
+				po("client: resp.Body = '%s'\n", string(body))
+				_, err = conn.Write(body)
+				panicOn(err)
+				resp.Body.Close()
+			}
+		}
+	}()
+	return nil
 }
