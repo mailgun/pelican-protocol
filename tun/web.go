@@ -85,7 +85,7 @@ func (s *WebServer) Stop() {
 		return
 	}
 	close(s.requestStop)
-	s.tts.Close()
+	s.tts.Close() // hang here
 	//VPrintf("in WebServer::Stop() after s.tts.Close()\n")
 	<-s.Done
 	//VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
@@ -152,4 +152,33 @@ func FetchUrl(url string) ([]byte, error) {
 		}
 		return contents, nil
 	}
+}
+
+// mock for http.ResponseWriter
+
+type MockResponseWriter struct{}
+
+// Header returns the header map that will be sent by WriteHeader.
+// Changing the header after a call to WriteHeader (or Write) has
+// no effect.
+func (m *MockResponseWriter) Header() http.Header {
+	return make(http.Header)
+}
+
+// Write writes the data to the connection as part of an HTTP reply.
+// If WriteHeader has not yet been called, Write calls WriteHeader(http.StatusOK)
+// before writing the data.  If the Header does not contain a
+// Content-Type line, Write adds a Content-Type set to the result of passing
+// the initial 512 bytes of written data to DetectContentType.
+func (m *MockResponseWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+// WriteHeader sends an HTTP response header with status code.
+// If WriteHeader is not called explicitly, the first call to Write
+// will trigger an implicit WriteHeader(http.StatusOK).
+// Thus explicit calls to WriteHeader are mainly used to
+// send error codes.
+func (m *MockResponseWriter) WriteHeader(status int) {
+
 }

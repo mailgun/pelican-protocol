@@ -1,6 +1,7 @@
 package pelicantun
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -24,7 +25,7 @@ type ReverseProxy struct {
 	ReqStop chan bool
 	web     *WebServer
 
-	packetQueue chan tunnelPacket
+	packetQueue chan *tunnelPacket
 	createQueue chan *tunnel
 }
 
@@ -55,7 +56,7 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 		Cfg:         cfg,
 		Done:        make(chan bool),
 		ReqStop:     make(chan bool),
-		packetQueue: make(chan tunnelPacket),
+		packetQueue: make(chan *tunnelPacket),
 		createQueue: make(chan *tunnel),
 	}
 }
@@ -71,25 +72,17 @@ func (s *ReverseProxy) Start() {
 		for {
 			select {
 			case pp := <-s.packetQueue:
-				key := make([]byte, KeyLen)
-				// read key
-				//n, err := pp.req.Body.Read(key)
-				if len(pp.body) < KeyLen {
-					log.Printf("Couldn't read key, not enough bytes in body. len(body) = %d\n", len(pp.body))
-					continue
-				}
-				copy(key, pp.body)
 
-				po("tunnelMuxer: from pp <- packetQueue, we read key '%x'\n", key)
+				po("tunnelMuxer: from pp <- packetQueue, we read key '%x'\n", pp.key)
 				// find tunnel
-				p, ok := tunnelMap[string(key)]
+				tunnel, ok := tunnelMap[string(pp.key)]
 				if !ok {
-					log.Printf("Couldn't find tunnel for key = '%x'", key)
+					log.Printf("Couldn't find tunnel for key = '%x'", pp.key)
 					continue
 				}
 				// handle
-				po("tunnelMuxer found tunnel for key '%x'\n", key)
-				p.receiveOnePacket(pp)
+				po("tunnelMuxer found tunnel for key '%x'\n", pp.key)
+				tunnel.receiveOnePacket(pp)
 
 			case p := <-s.createQueue:
 				po("tunnelMuxer: got p=%p on <-createQueue\n", p)
@@ -115,14 +108,16 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		panicOn(err)
 		po("top level handler(): in '/' and '/ping' handler, packet len without key: %d: making new tunnelPacket, http.Request r = '%#v'. r.Body = '%s'\n", len(body)-KeyLen, *r, string(body))
 
-		pp := tunnelPacket{
-			resp:    c,
-			request: r,
-			body:    body, // includes key of KeyLen in prefix
-			done:    make(chan bool),
+		key := make([]byte, KeyLen)
+		if len(body) < KeyLen {
+			http.Error(c, fmt.Sprintf("Couldn't read key, not enough bytes in body. len(body) = %d\n",
+				len(body)),
+				http.StatusBadRequest)
+			return
 		}
-		s.packetQueue <- pp
-		<-pp.done // wait until done before returning, as this will return anything written to c to the client.
+		copy(key, body)
+
+		s.injectPacket(c, r, body[KeyLen:], string(key))
 	}
 
 	// createHandler
@@ -136,18 +131,13 @@ func (s *ReverseProxy) startExternalHttpListener() {
 			return
 		}
 
-		key := genKey()
-		po("in createhandler(): Server::createHandler generated key '%s'\n", key)
-
-		p, err := NewTunnel(key, s.Cfg.Dest.IpPort)
+		tunnel, err := s.NewTunnel(s.Cfg.Dest.IpPort)
 		if err != nil {
-			http.Error(c, "Could not connect to destination",
+			http.Error(c, fmt.Sprintf("Could not connect to destination: '%s'", err),
 				http.StatusInternalServerError)
 			return
 		}
-		po("Server::createHandler about to send createQueue <- p, where p = %p\n", p)
-		s.createQueue <- p
-		po("Server::createHandler(): sent createQueue <- p.\n")
+		key := tunnel.key
 
 		c.Write([]byte(key))
 		po("Server::createHandler done.\n")
@@ -169,8 +159,11 @@ const (
 	readTimeoutMsec = 1000
 )
 
-// a tunnel represents a 1:1, one client to one server connection.
-// a ReverseProxy can have many of these.
+// a tunnel represents a 1:1, one client to one server connection,
+// if you ignore the socks-proxy and reverse-proxy in the middle.
+// A ReverseProxy can have many tunnels, mirroring the number of
+// connections on the client side to the socks proxy. The key
+// distinguishes them.
 type tunnel struct {
 	C chan tunnelPacket
 
@@ -184,23 +177,28 @@ type tunnel struct {
 
 type tunnelPacket struct {
 	resp    http.ResponseWriter
+	respdup *bytes.Buffer // duplicate resp here, to enable testing
+
 	request *http.Request
 	body    []byte
+	key     string // separate from body
 	done    chan bool
 }
 
 // print out shortcut
 var po = VPrintf
 
-func NewTunnel(key, destAddr string) (p *tunnel, err error) {
+func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
+	key := genKey()
+
 	po("starting with NewTunnel\n")
-	p = &tunnel{
+	t = &tunnel{
 		C:         make(chan tunnelPacket),
-		key:       key,
+		key:       string(key),
 		recvCount: 0,
 	}
 	log.Println("Attempting connect", destAddr)
-	p.conn, err = net.Dial("tcp", destAddr)
+	t.conn, err = net.Dial("tcp", destAddr)
 	switch err.(type) {
 	case *net.OpError:
 		if strings.HasSuffix(err.Error(), "connection refused") {
@@ -211,56 +209,105 @@ func NewTunnel(key, destAddr string) (p *tunnel, err error) {
 		panicOn(err)
 	}
 
-	err = p.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
+	err = t.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)
 
 	log.Println("ResponseWriter directed to ", destAddr)
+
+	po("NewTunnel about to send createQueue <- t, where t = %p\n", t)
+	rev.createQueue <- t
+	po("NewTunnel: sent createQueue <- t.\n")
+
 	po("done with NewTunnel\n")
 	return
 }
 
-func (p *tunnel) receiveOnePacket(pp tunnelPacket) {
-	p.recvCount++
-	po("\n ====================\n server tunnel.recvCount = %d    len(pp.body)= %d\n ================\n", p.recvCount, len(pp.body))
-
-	po("in tunnel::handle(pp) with pp = '%#v'\n", pp)
-	// read from the request body and write to the ResponseWriter
-	writeMe := pp.body[KeyLen:]
-	n, err := p.conn.Write(writeMe)
-	if n != len(writeMe) {
-		log.Printf("tunnel::handle(pp): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pp.body), err)
-	} else {
-		po("tunnel::handle(pp): wrote all %d bytes of writeMe to the final (sshd server) connection: '%s'.", len(writeMe), string(writeMe))
+func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string) ([]byte, error) {
+	pack := &tunnelPacket{
+		resp:    c,
+		respdup: new(bytes.Buffer),
+		request: r,
+		body:    body, // body no longer includes key of KeyLen in prefix
+		done:    make(chan bool),
+		key:     key,
 	}
-	// done in packetHandler now: pp.request.Body.Close()
+
+	select {
+	case s.packetQueue <- pack:
+
+	case <-s.Done:
+		// don't deadlock
+	case <-s.ReqStop:
+		// don't deadlock
+	}
+
+	select {
+	// wait until done before returning, as this will return anything written to c to the client.
+	case <-pack.done:
+		// okay, writing to c is done.
+
+	case <-s.Done:
+		// don't deadlock
+	case <-s.ReqStop:
+		// don't deadlock
+	}
+	return pack.respdup.Bytes(), nil
+}
+
+// receiveOnePacket() closes pack.done after:
+//   writing pack.body to t.conn;
+//   reading from t.conn some bytes if available;
+//   and writing those bytes to pack.resp
+//
+//  t.conn is the downstream ultimate webserver
+//  destination.
+//
+func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
+	t.recvCount++
+	po("\n ====================\n server tunnel.recvCount = %d    len(pack.body)= %d\n ================\n", t.recvCount, len(pack.body))
+
+	po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
+	// read from the request body and write to the ResponseWriter
+	n, err := t.conn.Write(pack.body)
+	if n != len(pack.body) {
+		log.Printf("tunnel::handle(pack): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pack.body), err)
+	} else {
+		po("tunnel::handle(pack): wrote all %d bytes of pack.body to the final (sshd server) connection: '%s'.", len(pack.body), string(pack.body))
+	}
+	// done in packetHandler now: pack.request.Body.Close()
 	if err == io.EOF {
-		p.conn = nil
-		log.Printf("tunnel::handle(pp): EOF for key '%x'", p.key)
+		t.conn = nil
+		log.Printf("tunnel::handle(pack): EOF for key '%x'", t.key)
 		return
 	}
 	// read out of the buffer and write it to conn
-	pp.resp.Header().Set("Content-type", "application/octet-stream")
-	// temp for debug: n64, err := io.Copy(pp.resp, p.conn)
+	pack.resp.Header().Set("Content-type", "application/octet-stream")
+	// temp for debug: n64, err := io.Copy(pack.resp, t.conn)
 
 	b500 := make([]byte, 1<<17)
 
-	err = p.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
+	err = t.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)
 
-	n64, err := p.conn.Read(b500)
+	n64, err := t.conn.Read(b500)
 	if err != nil {
 		// i/o timeout expected
 	}
-	po("\n\n server got reply from p.conn of len %d: '%s'\n", n64, string(b500[:n64]))
-	_, err = pp.resp.Write(b500[:n64])
+	po("\n\n server got reply from t.conn of len %d: '%s'\n", n64, string(b500[:n64]))
+	_, err = pack.resp.Write(b500[:n64])
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = pack.respdup.Write(b500[:n64])
 	if err != nil {
 		panic(err)
 	}
 
 	// don't panicOn(err)
-	log.Printf("tunnel::handle(pp): io.Copy into pp.resp from p.conn moved %d bytes", n64)
-	close(pp.done)
-	po("tunnel::handle(pp) done.\n")
+	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.conn moved %d bytes", n64)
+	close(pack.done)
+	po("tunnel::handle(pack) done.\n")
 }
 
 func genKey() string {
