@@ -17,42 +17,41 @@ func TestPelicanSocksProxyHandlesClientConnectionClose008(t *testing.T) {
 	if psp.doneAlarm != nil {
 		panic("client psp logic error: doneAlarm must be nil until we arm it.")
 	}
-	po("topcount = %d\n", psp.GetTopLoopCount())
+	//po("topcount = %d\n", psp.GetTopLoopCount())
 
 	cv.Convey("Given a started PelicanSocksProxy, we should handle Close of the socket after Accept gracefully\n", t, func() {
 
-		cv.So(psp.OpenClientCount(), cv.ShouldEqual, 0)
-		topcount := psp.GetTopLoopCount()
-		po("sequential, topcount = %d\n", topcount)
+		err := psp.WaitForClientCount(0, time.Second*2)
+		cv.So(err, cv.ShouldEqual, nil)
 
-		po("dialing %v\n", psp.Cfg.Listen.IpPort)
+		cv.So(psp.OpenClientCount(), cv.ShouldEqual, 0)
+
 		conn, err := net.Dial("tcp", psp.Cfg.Listen.IpPort)
 		if err != nil {
 			panic(err)
 		}
 
-		var trycount int64 = 1
-		c2 := psp.GetTopLoopCount()
-		po("c2 = %d, topcount = %d\n", c2, topcount)
-		for c2 < topcount-trycount+3 {
-			time.Sleep(1000 * time.Millisecond)
-			c2 = psp.GetTopLoopCount()
-			trycount++
-			po("c2 = %d, topcount-trycount = %d\n", c2, topcount-trycount)
+		err = psp.WaitForClientCount(1, time.Second*2)
+		cv.So(err, cv.ShouldEqual, nil)
+
+		// and another
+		conn2, err := net.Dial("tcp", psp.Cfg.Listen.IpPort)
+		if err != nil {
+			panic(err)
 		}
-		cv.So(psp.OpenClientCount(), cv.ShouldEqual, 1) // failing
 
-		po("topcount = %d\n", psp.GetTopLoopCount())
+		err = psp.WaitForClientCount(2, time.Second*2)
+		cv.So(err, cv.ShouldEqual, nil)
 
-		// have to prevent race by waiting until the
-		// effect of conn.Close() percolates through.
-		ind2 := psp.GetDoneReaderIndicator()
 		conn.Close()
-		<-ind2
 
-		cv.So(psp.OpenClientCount(), cv.ShouldEqual, 0)
+		err = psp.WaitForClientCount(1, time.Second*2)
+		cv.So(err, cv.ShouldEqual, nil)
 
-		po("topcount = %d\n", psp.GetTopLoopCount())
+		conn2.Close()
+
+		err = psp.WaitForClientCount(0, time.Second*2)
+		cv.So(err, cv.ShouldEqual, nil)
 
 	})
 }

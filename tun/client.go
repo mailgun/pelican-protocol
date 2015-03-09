@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 )
 
 const bufSize = 1024
@@ -64,11 +65,11 @@ func (r *ConnReader) StopWithoutReporting() {
 func (r *ConnReader) Start() {
 	go func() {
 		close(r.Ready)
-		fmt.Printf("\n debug: ConnReader::Start %p starting!!\n", r)
+		//fmt.Printf("\n debug: ConnReader::Start %p starting!!\n", r)
 
 		// Insure we close r.Done when exiting this goroutine.
 		defer func() {
-			fmt.Printf("\n debug: ConnReader::Start %p finished!!\n", r)
+			//fmt.Printf("\n debug: ConnReader::Start %p finished!!\n", r)
 			if !r.noReport {
 				r.notifyDone <- r
 			}
@@ -79,7 +80,8 @@ func (r *ConnReader) Start() {
 			b := make([]byte, r.bufsz)
 			n, err := r.reader.Read(b)
 			if err != nil {
-				fmt.Printf("\n debug: ConnReader got error '%s' reading from r.reader. Shutting down.\n", err)
+				//fmt.Printf("\n debug: ConnReader got error '%s' reading from r.reader. Shutting down.\n", err)
+				// typical: "debug: ConnReader got error 'EOF' reading from r.reader. Shutting down."
 				if !r.IsStopRequested() {
 					close(r.ReqStop)
 				}
@@ -228,6 +230,27 @@ func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
 		return nil, fmt.Errorf("PelicanSocksProxy shutting down.")
 	case <-f.Done:
 		return nil, fmt.Errorf("PelicanSocksProxy shutting down.")
+	}
+}
+
+// returns nil if the open client count hits target within the maxElap time.
+// otherwise a non-nil error is returned. Sleeps in 10 msec increments.
+func (f *PelicanSocksProxy) WaitForClientCount(target int, maxElap time.Duration) error {
+	trycount := 0
+	c := 0
+	t0 := time.Now()
+
+	for {
+		c = f.OpenClientCount()
+		trycount++
+		if c == target {
+			return nil
+		} else {
+			if time.Since(t0) > maxElap {
+				return fmt.Errorf("WaitForClientCount did not hit target %d after %d tries in %v time. Last observed count: %d", target, trycount, maxElap, c)
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -414,29 +437,29 @@ func (f *PelicanSocksProxy) Start() error {
 				connReader := NewConnReader(upConn, bufSize, key, f.ConnReaderDoneCh)
 				connReader.Start()
 				f.readers[connReader] = true
-				po("after add, len(readers) = %d\n", len(f.readers))
+				//po("after add, len(readers) = %d\n", len(f.readers))
 
 			case alarmReq := <-f.ReaderDoneAlarmReqCh:
-				po("got request for done alarm\n")
+				//po("got request for done alarm\n")
 
 				if f.doneAlarm == nil {
 					f.doneAlarm = make(chan bool)
 				}
 				alarmReq.TopLoopCount = topLoopCount
 				alarmReq.Reply <- f.doneAlarm
-				po("replied with done alarm\n")
+				//po("replied with done alarm\n")
 
 			case doneReader := <-f.ConnReaderDoneCh:
-				po("doneReader received on channel, len(readers) = %d\n", len(f.readers))
+				//po("doneReader received on channel, len(readers) = %d\n", len(f.readers))
 				if !f.readers[doneReader] {
 					panic(fmt.Sprintf("doneReader %p not found in f.readers = '%#v'", doneReader, f.readers))
 				}
 				delete(f.readers, doneReader)
-				po("after delete, len(readers) = %d\n", len(f.readers))
+				//po("after delete, len(readers) = %d\n", len(f.readers))
 
 				// allow tests to wait until a doneReader has been received, to avoid racing.
 				if f.doneAlarm != nil {
-					po("closing active done alarm\n")
+					//po("closing active done alarm\n")
 					close(f.doneAlarm)
 					f.doneAlarm = nil
 				}
