@@ -14,6 +14,7 @@ func TestPelicanSocksProxyAcceptsClientConnections003(t *testing.T) {
 		psp.Start()
 		defer psp.Stop()
 
+		// the PortIsBound call will cause a connection that should then be closed.
 		cv.So(PortIsBound(psp.Cfg.Listen.IpPort), cv.ShouldEqual, true)
 
 		url := fmt.Sprintf("http://%s/hello/world", psp.Cfg.Listen.IpPort)

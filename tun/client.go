@@ -152,6 +152,10 @@ func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
 	}
 }
 
+func (f *PelicanSocksProxy) OpenClientCount() int {
+	return 0
+}
+
 // There is one TcpUpstreamReceiver per port that
 // the PelicanSocksProxy listens on. It blocks on the
 // socket Accept() call so that the main goroutine of
@@ -196,14 +200,14 @@ func (r *TcpUpstreamReceiver) Start() error {
 	}
 	go func() {
 		for {
-			fmt.Printf("top of TcpUpstreamReceiver::Start() for{} loop.\n")
+			po("client TcpUpstreamReceiver::Start(): top of for{} loop.\n")
 			if r.IsStopRequested() {
 				r.lsn.Close()
 				close(r.Done)
 				return
 			}
 
-			log.Printf("GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
+			po("client TcpUpstreamReceiver::Start(): GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
 
 			conn, err := r.lsn.Accept()
 			if err != nil {
@@ -213,11 +217,11 @@ func (r *TcpUpstreamReceiver) Start() error {
 					return
 				}
 
-				log.Printf("GetTCPConnection error duing listener.Accept(): '%s'\n", err)
+				log.Printf("client TcpUpstreamReceiver::Start(): error duing listener.Accept(): '%s'\n", err)
 				continue
 			}
 
-			log.Printf("GetTcpUpstreamConnection accepted local connection '%v' from remote '%v'\n", conn.LocalAddr(), conn.RemoteAddr())
+			log.Printf("client TcpUpstreamReceiver::Start(): accepted '%v' -> '%v' local\n", conn.RemoteAddr(), conn.LocalAddr())
 
 			// avoid deadlock on shutdown, use select around the send.
 			select {
@@ -245,7 +249,7 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 
 	// initiate new session and read key
 	url := fmt.Sprintf("http://%s/create", f.Cfg.Dest.IpPort)
-	log.Printf("ConnectDownstreamHttp: attempting POST to '%s'\n", url)
+	log.Printf("client/PSP: ConnectDownstreamHttp: attempting POST to '%s'\n", url)
 	resp, err := http.Post(
 		url,
 		"text/plain",
@@ -257,7 +261,7 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 	key, err := ioutil.ReadAll(resp.Body)
 	panicOn(err)
 	resp.Body.Close()
-	log.Printf("client main(): after Post('/create') we got ResponseWriter with key = '%x'", key)
+	log.Printf("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x' of len %d\n\n", key, len(key))
 
 	return string(key), nil
 }
@@ -291,7 +295,7 @@ func (f *PelicanSocksProxy) Start() error {
 
 				key, err := f.ConnectDownstreamHttp()
 				if err != nil {
-					log.Printf("got connection upstream from upConn.RemoteAddr('%s'), but could not connect downstream: '%s'\n", upConn.RemoteAddr(), err)
+					log.Printf("client/PSP: Start() loop: got connection upstream from upConn.RemoteAddr('%s'), but could not connect downstream: '%s'\n", upConn.RemoteAddr(), err)
 					upConn.Close()
 					continue
 				}

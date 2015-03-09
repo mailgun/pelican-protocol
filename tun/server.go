@@ -140,7 +140,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		key := tunnel.key
 
 		c.Write([]byte(key))
-		po("Server::createHandler done.\n")
+		po("Server::createHandler done for key '%x'.\n", key)
 	}
 
 	mux := http.NewServeMux()
@@ -148,9 +148,9 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	mux.HandleFunc("/", packetHandler)
 	mux.HandleFunc("/create", createHandler)
 
-	webcfg := WebServerConfig{Listen: addr{Ip: s.Cfg.Listen.Ip, Port: s.Cfg.Listen.Port}}
+	webcfg := WebServerConfig{Listen: s.Cfg.Listen}
 	s.web = NewWebServer(webcfg, mux)
-	fmt.Printf("\n about to w.web.Start() with webcfg = '%#v'\n", webcfg)
+	//VPrintf("\n Server::createHandler(): about to w.web.Start() with webcfg = '%#v'\n", webcfg)
 	s.web.Start()
 
 }
@@ -191,13 +191,13 @@ var po = VPrintf
 func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 	key := genKey()
 
-	po("starting with NewTunnel\n")
+	po("ReverseProxy::NewTunnel() top. key = '%x'\n", key)
 	t = &tunnel{
 		C:         make(chan tunnelPacket),
 		key:       string(key),
 		recvCount: 0,
 	}
-	log.Println("Attempting connect", destAddr)
+	po("ReverseProxy::NewTunnel: Attempting connect to our target '%s'\n", destAddr)
 	t.conn, err = net.Dial("tcp", destAddr)
 	switch err.(type) {
 	case *net.OpError:
@@ -212,13 +212,13 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 	err = t.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)
 
-	log.Println("ResponseWriter directed to ", destAddr)
+	po("ReverseProxy::NewTunnel: ResponseWriter directed to '%s'\n", destAddr)
 
-	po("NewTunnel about to send createQueue <- t, where t = %p\n", t)
+	po("ReverseProxy::NewTunnel about to send createQueue <- t, where t = %p\n", t)
 	rev.createQueue <- t
-	po("NewTunnel: sent createQueue <- t.\n")
+	po("ReverseProxy::NewTunnel: sent createQueue <- t.\n")
 
-	po("done with NewTunnel\n")
+	po("ReverseProxy::NewTunnel done.\n")
 	return
 }
 
@@ -310,10 +310,10 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	po("tunnel::handle(pack) done.\n")
 }
 
-func genKey() string {
+func genKey() []byte {
 	key := make([]byte, KeyLen)
 	for i := 0; i < KeyLen; i++ {
 		key[i] = byte(rand.Int())
 	}
-	return string(key)
+	return key
 }
