@@ -17,21 +17,24 @@ type ConnReader struct {
 	readCh chan []byte
 	bufsz  int
 
-	Ready   chan bool
-	ReqStop chan bool
-	Done    chan bool
-	key     string
+	Ready      chan bool
+	ReqStop    chan bool
+	Done       chan bool
+	key        string
+	notifyDone chan *ConnReader
+	noReport   bool
 }
 
-func NewConnReader(r io.Reader, bufsz int, key string) *ConnReader {
+func NewConnReader(r io.Reader, bufsz int, key string, notifyDone chan *ConnReader) *ConnReader {
 	re := &ConnReader{
-		reader:  r,
-		readCh:  make(chan []byte, bufsz),
-		bufsz:   bufsz,
-		Ready:   make(chan bool),
-		ReqStop: make(chan bool),
-		Done:    make(chan bool),
-		key:     key,
+		reader:     r,
+		readCh:     make(chan []byte),
+		bufsz:      bufsz,
+		Ready:      make(chan bool),
+		ReqStop:    make(chan bool),
+		Done:       make(chan bool),
+		key:        key,
+		notifyDone: notifyDone,
 	}
 	return re
 }
@@ -53,29 +56,43 @@ func (r *ConnReader) Stop() {
 	<-r.Done
 }
 
+func (r *ConnReader) StopWithoutReporting() {
+	r.noReport = true
+	r.Stop()
+}
+
 func (r *ConnReader) Start() {
 	go func() {
 		close(r.Ready)
+		fmt.Printf("\n debug: ConnReader::Start %p starting!!\n", r)
+
+		// Insure we close r.Done when exiting this goroutine.
+		defer func() {
+			fmt.Printf("\n debug: ConnReader::Start %p finished!!\n", r)
+			if !r.noReport {
+				r.notifyDone <- r
+			}
+			close(r.Done)
+		}()
+
 		for {
 			b := make([]byte, r.bufsz)
 			n, err := r.reader.Read(b)
 			if err != nil {
+				fmt.Printf("\n debug: ConnReader got error '%s' reading from r.reader. Shutting down.\n", err)
 				if !r.IsStopRequested() {
 					close(r.ReqStop)
 				}
-				close(r.Done)
 				return
 			}
 
 			select {
 			case r.readCh <- b[0:n]:
 			case <-r.ReqStop:
-				close(r.Done)
 				return
 			}
 
 			if r.IsStopRequested() {
-				close(r.Done)
 				return
 			}
 		}
@@ -88,27 +105,52 @@ type PelicanSocksProxyConfig struct {
 	tickIntervalMsec int
 }
 
+// for requesting a doneAlarm and preventing races
+// during testing
+type ReaderDoneAlarmTicket struct {
+	Reply chan chan bool
+
+	// don't ready TopLoopCount until Reply is received. Race otherwise.
+	TopLoopCount int64
+}
+
+func NewReaderDoneAlarmTicket() *ReaderDoneAlarmTicket {
+	return &ReaderDoneAlarmTicket{
+		Reply: make(chan chan bool),
+	}
+}
+
 type PelicanSocksProxy struct {
 	Cfg     PelicanSocksProxyConfig
 	Ready   chan bool
 	ReqStop chan bool
 	Done    chan bool
 
-	Up            *TcpUpstreamReceiver
-	readers       []*ConnReader
-	LastRemoteReq chan net.Addr
-	lastRemote    net.Addr
+	Up                   *TcpUpstreamReceiver
+	readers              map[*ConnReader]bool
+	LastRemoteReq        chan net.Addr
+	OpenClientReq        chan int
+	lastRemote           net.Addr
+	ConnReaderDoneCh     chan *ConnReader
+	ReaderDoneAlarmReqCh chan *ReaderDoneAlarmTicket
+
+	testonly_dont_contact_downstream bool
+	doneAlarm                        chan bool
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
 
 	p := &PelicanSocksProxy{
-		Cfg:           cfg,
-		Ready:         make(chan bool),
-		ReqStop:       make(chan bool),
-		Done:          make(chan bool),
-		readers:       make([]*ConnReader, 0),
-		LastRemoteReq: make(chan net.Addr),
+		Cfg:                  cfg,
+		Ready:                make(chan bool),
+		ReqStop:              make(chan bool),
+		Done:                 make(chan bool),
+		readers:              make(map[*ConnReader]bool),
+		LastRemoteReq:        make(chan net.Addr),
+		OpenClientReq:        make(chan int),
+		ConnReaderDoneCh:     make(chan *ConnReader),
+		doneAlarm:            nil, // nil on purpose to start with
+		ReaderDoneAlarmReqCh: make(chan *ReaderDoneAlarmTicket),
 	}
 	p.SetDefault()
 	p.Up = NewTcpUpstreamReceiver(p.Cfg.Listen)
@@ -143,17 +185,62 @@ func (f *PelicanSocksProxy) Stop() {
 	WaitUntilServerDown(f.Cfg.Listen.IpPort)
 }
 
+func (f *PelicanSocksProxy) GetDoneReaderIndicator() chan bool {
+	ticket := NewReaderDoneAlarmTicket()
+
+	select {
+	case f.ReaderDoneAlarmReqCh <- ticket:
+	case <-f.ReqStop:
+		return nil //, fmt.Errorf("PelicanSocksProxy shutting down.")
+	case <-f.Done:
+		return nil //, fmt.Errorf("PelicanSocksProxy shutting down.")
+	}
+
+	// sent, so we are sure to get a reply, based on the implementation/
+	// handling of f.ReaderDoneAlarmReqCh in Start()
+	doneAlarm := <-ticket.Reply
+
+	return doneAlarm
+}
+
+func (f *PelicanSocksProxy) GetTopLoopCount() int64 {
+	ticket := NewReaderDoneAlarmTicket()
+
+	select {
+	case f.ReaderDoneAlarmReqCh <- ticket:
+	case <-f.ReqStop:
+		return -1 //, fmt.Errorf("PelicanSocksProxy shutting down.")
+	case <-f.Done:
+		return -1 //, fmt.Errorf("PelicanSocksProxy shutting down.")
+	}
+
+	// sent, so we are sure to get a reply, based on the implementation/
+	// handling of f.ReaderDoneAlarmReqCh in Start()
+	<-ticket.Reply
+	return ticket.TopLoopCount
+}
+
 func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
 	select {
 	case lastRemote := <-f.LastRemoteReq:
 		return lastRemote, nil
+	case <-f.ReqStop:
+		return nil, fmt.Errorf("PelicanSocksProxy shutting down.")
 	case <-f.Done:
 		return nil, fmt.Errorf("PelicanSocksProxy shutting down.")
 	}
 }
 
+// OpenClientCount returns -1 if PSP is shutting down.
 func (f *PelicanSocksProxy) OpenClientCount() int {
-	return 0
+	select {
+	case count := <-f.OpenClientReq:
+		return count
+	case <-f.ReqStop:
+		return -1
+	case <-f.Done:
+		return -1
+	}
 }
 
 // There is one TcpUpstreamReceiver per port that
@@ -199,36 +286,39 @@ func (r *TcpUpstreamReceiver) Start() error {
 		return err
 	}
 	go func() {
+		// Insure proper close down on all exit paths.
+		defer func() {
+			r.lsn.Close()
+			close(r.Done)
+		}()
+
+		// the Accept loop
 		for {
 			po("client TcpUpstreamReceiver::Start(): top of for{} loop.\n")
 			if r.IsStopRequested() {
-				r.lsn.Close()
-				close(r.Done)
 				return
 			}
 
-			po("client TcpUpstreamReceiver::Start(): GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
+			//po("client TcpUpstreamReceiver::Start(): GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
 
 			conn, err := r.lsn.Accept()
 			if err != nil {
 				if r.IsStopRequested() {
-					r.lsn.Close()
-					close(r.Done)
 					return
 				}
 
-				log.Printf("client TcpUpstreamReceiver::Start(): error duing listener.Accept(): '%s'\n", err)
+				po("client TcpUpstreamReceiver::Start(): error duing listener.Accept(): '%s'\n", err)
 				continue
 			}
 
-			log.Printf("client TcpUpstreamReceiver::Start(): accepted '%v' -> '%v' local\n", conn.RemoteAddr(), conn.LocalAddr())
+			po("client TcpUpstreamReceiver::Start(): accepted '%v' -> '%v' local\n", conn.RemoteAddr(), conn.LocalAddr())
 
 			// avoid deadlock on shutdown, use select around the send.
 			select {
 			case r.UpstreamTcpConnChan <- conn:
+				po("client TcpUpstreamReceiver::Start(): sent on r.UpstreamTcpConnChan\n")
 			case <-r.ReqStop:
-				r.lsn.Close()
-				close(r.Done)
+				po("client TcpUpstreamReceiver::Start(): r.ReqStop received.\n")
 				return
 			}
 		}
@@ -272,7 +362,11 @@ func (f *PelicanSocksProxy) Start() error {
 		panic(fmt.Errorf("could not start f.Up, our TcpUpstreamReceiver; error: '%s'", err))
 	}
 
-	// will this bother our server to get a hang up right away? it shouldn't.
+	// will this bother our server to get a hang up right away? no, but it means
+	// our open and close handling logic will get exercised immediately.
+	// Also, very important to do this to prevent races on startup. Test correctness
+	// will non-deterministically be impacted if we don't wait here.
+	f.doneAlarm = make(chan bool)
 	WaitUntilServerUp(f.Cfg.Listen.IpPort)
 
 	// ticker to set a rate at which to hit the server
@@ -285,33 +379,79 @@ func (f *PelicanSocksProxy) Start() error {
 
 	var upConn net.Conn
 	go func() {
+		var topLoopCount int64
 		for {
+			topLoopCount++
 			select {
+			case f.OpenClientReq <- len(f.readers):
+				// nothing more, just send when requested
+
 			case f.LastRemoteReq <- f.lastRemote:
 				// nothing more, just send when requested
 
 			case upConn = <-f.Up.UpstreamTcpConnChan:
+				po("client/PSP: Start(): handling upConn = <-f.Up.UpstreamTcpConnChan.\n")
 				f.lastRemote = upConn.RemoteAddr()
 
-				key, err := f.ConnectDownstreamHttp()
-				if err != nil {
-					log.Printf("client/PSP: Start() loop: got connection upstream from upConn.RemoteAddr('%s'), but could not connect downstream: '%s'\n", upConn.RemoteAddr(), err)
-					upConn.Close()
-					continue
-				}
-				if key == "" {
-					panic("internal error in error handling logic: empty key back but no error from f.ConnectDownstreamHttp()")
+				var err error
+				var key string
+				if f.testonly_dont_contact_downstream {
+					po("client/PSP: Start(): handling upConn = <-f.Up.UpstreamTcpConnChan: " +
+						"f.testonly_dont_contact_downstream is true.\n")
+					key = "testkey"
+				} else {
+					key, err = f.ConnectDownstreamHttp()
+					if err != nil {
+						log.Printf("client/PSP: Start() loop: got connection upstream from upConn.RemoteAddr('%s'), but could not connect downstream: '%s'\n", upConn.RemoteAddr(), err)
+						upConn.Close()
+						continue
+					}
+					if key == "" {
+						panic("internal error in error handling logic: empty key back but no error from f.ConnectDownstreamHttp()")
+					}
 				}
 
-				connReader := NewConnReader(upConn, bufSize, key)
+				connReader := NewConnReader(upConn, bufSize, key, f.ConnReaderDoneCh)
 				connReader.Start()
-				f.readers = append(f.readers, connReader)
+				f.readers[connReader] = true
+				po("after add, len(readers) = %d\n", len(f.readers))
+
+			case alarmReq := <-f.ReaderDoneAlarmReqCh:
+				po("got request for done alarm\n")
+
+				if f.doneAlarm == nil {
+					f.doneAlarm = make(chan bool)
+				}
+				alarmReq.TopLoopCount = topLoopCount
+				alarmReq.Reply <- f.doneAlarm
+				po("replied with done alarm\n")
+
+			case doneReader := <-f.ConnReaderDoneCh:
+				po("doneReader received on channel, len(readers) = %d\n", len(f.readers))
+				if !f.readers[doneReader] {
+					panic(fmt.Sprintf("doneReader %p not found in f.readers = '%#v'", doneReader, f.readers))
+				}
+				delete(f.readers, doneReader)
+				po("after delete, len(readers) = %d\n", len(f.readers))
+
+				// allow tests to wait until a doneReader has been received, to avoid racing.
+				if f.doneAlarm != nil {
+					po("closing active done alarm\n")
+					close(f.doneAlarm)
+					f.doneAlarm = nil
+				}
 
 			case <-f.ReqStop:
+				po("client: in <-f.ReqStop, len(readers) = %d\n", len(f.readers))
 				f.Up.Stop()
-				for _, reader := range f.readers {
-					reader.Stop()
+
+				// the reader.Stop() will call back in on f.ConnReaderDoneCh
+				// to report finishing. Therefore we use StopWithoutReporting().
+				for reader, _ := range f.readers {
+					reader.StopWithoutReporting()
+					delete(f.readers, reader)
 				}
+
 				close(f.Done)
 				return
 				/*
@@ -352,5 +492,12 @@ func (f *PelicanSocksProxy) Start() error {
 			}
 		}
 	}()
+
+	// wait until the WaitUntilServerUp(f.Cfg.Listen.IpPort) completes processing.
+	// the go-routine above has to start and get the close message before doneAlarm
+	// will be closed in turn.
+	<-f.doneAlarm
+	f.doneAlarm = nil
+
 	return nil
 }
