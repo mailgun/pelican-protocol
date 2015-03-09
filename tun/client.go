@@ -322,7 +322,7 @@ func (r *TcpUpstreamReceiver) Start() error {
 				return
 			}
 
-			//po("client TcpUpstreamReceiver::Start(): GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
+			po("client TcpUpstreamReceiver::Start(): GetTCPConnection listening on '%v'\n", r.Listen.IpPort)
 
 			conn, err := r.lsn.Accept()
 			if err != nil {
@@ -379,6 +379,15 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 	return string(key), nil
 }
 
+func (f *PelicanSocksProxy) redoAlarm() {
+	// allow tests to wait until a doneReader has been received, to avoid racing.
+	if f.doneAlarm != nil {
+		//po("closing active done alarm\n")
+		close(f.doneAlarm)
+		f.doneAlarm = nil
+	}
+}
+
 func (f *PelicanSocksProxy) Start() error {
 	err := f.Up.Start()
 	if err != nil {
@@ -426,7 +435,11 @@ func (f *PelicanSocksProxy) Start() error {
 					key, err = f.ConnectDownstreamHttp()
 					if err != nil {
 						log.Printf("client/PSP: Start() loop: got connection upstream from upConn.RemoteAddr('%s'), but could not connect downstream: '%s'\n", upConn.RemoteAddr(), err)
+						fmt.Fprintf(upConn, "PSP/PelicanSocksProxy error: could not connect to downstream PelicanReverseProxy server at address '%s': error was '%s'", f.Cfg.Dest.IpPort, err)
 						upConn.Close()
+
+						// don't block startup just because we failed here.
+						f.redoAlarm()
 						continue
 					}
 					if key == "" {
@@ -457,12 +470,7 @@ func (f *PelicanSocksProxy) Start() error {
 				delete(f.readers, doneReader)
 				//po("after delete, len(readers) = %d\n", len(f.readers))
 
-				// allow tests to wait until a doneReader has been received, to avoid racing.
-				if f.doneAlarm != nil {
-					//po("closing active done alarm\n")
-					close(f.doneAlarm)
-					f.doneAlarm = nil
-				}
+				f.redoAlarm()
 
 			case <-f.ReqStop:
 				po("client: in <-f.ReqStop, len(readers) = %d\n", len(f.readers))
@@ -477,12 +485,14 @@ func (f *PelicanSocksProxy) Start() error {
 
 				close(f.Done)
 				return
+
 				/*
-							case b := <-read:
-								// fill buf here
-								po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
-								buf.Write(b)
-								po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
+					case b := <-read:
+						// fill buf here
+						po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
+						buf.Write(b)
+						po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
+
 					case <-tick.C:
 						sendCount++
 						po("\n ====================\n client sendCount = %d\n ====================\n", sendCount)
@@ -511,7 +521,6 @@ func (f *PelicanSocksProxy) Start() error {
 						panicOn(err)
 						resp.Body.Close()
 				*/
-
 			}
 		}
 	}()
@@ -520,7 +529,6 @@ func (f *PelicanSocksProxy) Start() error {
 	// the go-routine above has to start and get the close message before doneAlarm
 	// will be closed in turn.
 	<-f.doneAlarm
-	f.doneAlarm = nil
 
 	return nil
 }

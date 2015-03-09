@@ -123,6 +123,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	// createHandler
 	createHandler := func(c http.ResponseWriter, r *http.Request) {
 
+		po("Server::createHandler starting.\n")
 		_, err := ioutil.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
@@ -139,6 +140,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		}
 		key := tunnel.key
 
+		po("Server::createHandler, about to write key '%s'.\n", key)
 		c.Write([]byte(key))
 		po("Server::createHandler done for key '%x'.\n", key)
 	}
@@ -198,7 +200,12 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 		recvCount: 0,
 	}
 	po("ReverseProxy::NewTunnel: Attempting connect to our target '%s'\n", destAddr)
-	t.conn, err = net.Dial("tcp", destAddr)
+	dialer := net.Dialer{
+		Timeout:   1000 * time.Millisecond,
+		KeepAlive: 30 * time.Second,
+	}
+
+	t.conn, err = dialer.Dial("tcp", destAddr)
 	switch err.(type) {
 	case *net.OpError:
 		if strings.HasSuffix(err.Error(), "connection refused") {
