@@ -114,3 +114,17 @@ func StripNanomsgAddressPrefix(nanomsgAddr string) (suffix string, err error) {
 	}
 	return match[1], nil
 }
+
+// reduce `http://blah:port` to `blah`
+var validSplitOutHostRegex = regexp.MustCompile(`([^:]*)`)
+
+// SplitOutHostFromUrl() returns the host, given a url of form host:port/blah.
+//
+func SplitOutHostFromUrl(url string) (suffix string, err error) {
+
+	match := validSplitOutHostRegex.FindStringSubmatch(url)
+	if match == nil || len(match) != 2 {
+		return "", fmt.Errorf("could not strip prefix tcp:// from nanomsg address '%s'", url)
+	}
+	return match[1], nil
+}
