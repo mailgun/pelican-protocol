@@ -44,7 +44,7 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux) *WebServer {
 		cfg.Listen.Ip = "127.0.0.1"
 	}
 	cfg.Listen.SetIpPort()
-	VPrintf("hey hey: starting webserver on '%s'\n", cfg.Listen.IpPort)
+	//VPrintf("hey hey: starting webserver on '%s'\n", cfg.Listen.IpPort)
 
 	s := &WebServer{
 		Cfg:         cfg,
@@ -86,9 +86,9 @@ func (s *WebServer) Stop() {
 	}
 	close(s.requestStop)
 	s.tts.Close()
-	VPrintf("in WebServer::Stop() after s.tts.Close()\n")
+	//VPrintf("in WebServer::Stop() after s.tts.Close()\n")
 	<-s.Done
-	VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
+	//VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
 
 	WaitUntilServerDown(s.Cfg.Listen.IpPort)
 }

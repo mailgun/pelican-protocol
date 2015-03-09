@@ -6,8 +6,8 @@ import (
 	cv "github.com/smartystreets/goconvey/convey"
 )
 
-func TestReverseProxyTalksToWebSite(t *testing.T) {
-	cv.Convey("When we start the ReverseProxy, it should forward web requests to ultimate target web server at the given host and port", t, func() {
+func TestServerSideWebSiteMockStartsUp004(t *testing.T) {
+	cv.Convey("When we start a web server on the server side, we should be able to reach it with an http request", t, func() {
 
 		web := NewWebServer(WebServerConfig{}, nil)
 		web.Start()
@@ -18,8 +18,9 @@ func TestReverseProxyTalksToWebSite(t *testing.T) {
 			cv.So(PortIsBound(web.Cfg.Listen.IpPort), cv.ShouldEqual, false)
 		}()
 
-		//by, err := FetchUrl("http://" + web.Cfg.Addr + "/")
+		by, err := FetchUrl("http://" + web.Cfg.Listen.IpPort + "/")
 
-		cv.So(true, cv.ShouldEqual, true)
+		cv.So(err, cv.ShouldEqual, nil)
+		cv.So(string(by), cv.ShouldResemble, "404 page not found\n")
 	})
 }
