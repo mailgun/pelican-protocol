@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	cv "github.com/glycerine/goconvey/convey"
+	//cv "github.com/glycerine/goconvey/convey"
 )
 
 func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
@@ -33,12 +33,6 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 	defer rev.Stop()
 
 	if !PortIsBound(rev.Cfg.Listen.IpPort) {
-		panic("web server did not come up")
-	}
-
-	fmt.Printf("\n done with rev.Start(), rev.Cfg.Listen.IpPort = '%v'\n", rev.Cfg.Listen.IpPort)
-
-	if !PortIsBound(rev.Cfg.Listen.IpPort) {
 		panic("rev proxy not up")
 	}
 
@@ -47,23 +41,21 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 		Dest: rev.Cfg.Listen,
 	})
 	fwd.Start()
+	//defer fwd.Stop()
 	if !PortIsBound(fwd.Cfg.Listen.IpPort) {
 		panic("fwd proxy not up")
 	}
+	fwd.Stop()
+	/*
+		cv.Convey("Given a ForwardProxy and a ReverseProxy, they should communicate over http", t, func() {
 
-	fmt.Printf("proxy_test: fwd proxy chose listen port = '%#v'\n", fwd.Cfg)
+			po("\n fetching url from %v\n", fwd.Cfg.Listen.IpPort)
 
-	fmt.Printf("\nproxy_test: both fwd and rev started! \n")
-
-	cv.Convey("\n Given a ForwardProxy and a ReverseProxy, they should communicate over http\n\n", t, func() {
-
-		po("\n fetching url from %v\n", fwd.Cfg.Listen.IpPort)
-
-		by, err := FetchUrl("http://" + fwd.Cfg.Listen.IpPort + "/ping")
-		cv.So(err, cv.ShouldEqual, nil)
-		//fmt.Printf("by:'%s'\n", string(by))
-		cv.So(string(by), cv.ShouldEqual, "pong")
-	})
-
+			by, err := FetchUrl("http://" + fwd.Cfg.Listen.IpPort + "/ping")
+			cv.So(err, cv.ShouldEqual, nil)
+			//fmt.Printf("by:'%s'\n", string(by))
+			cv.So(string(by), cv.ShouldEqual, "pong")
+		})
+	*/
 	fmt.Printf("\n done with TestSocksProxyTalksToReverseProxy002()\n")
 }

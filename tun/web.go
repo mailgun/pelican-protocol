@@ -64,14 +64,17 @@ func (s *WebServer) Start() {
 		return
 	}
 	s.started = true
+	po("WebServer::Start() begun, for s = %p.\n", s)
 
 	go func() {
 		err := s.tts.ListenAndServe()
 		if nil != err {
+			po("WebServer::Start() done with s.tts.ListenAndServer(); err = '%s'.\n", err)
 			//log.Println(err) // accept tcp 127.0.0.1:3000: use of closed network connection
 		}
 		s.stopped = true
 		close(s.Done)
+		po("WebServer::Start() inner goroutine done, for s = %p.\n", s)
 	}()
 
 	WaitUntilServerUp(s.Cfg.Listen.IpPort)
@@ -84,11 +87,13 @@ func (s *WebServer) Stop() {
 		// panic on two serial Stops() under web_test.go failure situation.
 		return
 	}
-	close(s.requestStop)
-	s.tts.Close() // hang here
-	//VPrintf("in WebServer::Stop() after s.tts.Close()\n")
+	weClosed := s.RequestStop()
+	if weClosed {
+		s.tts.Close() // without weClosed check, hang here because tts is already down and gone.
+	}
+	VPrintf("in WebServer::Stop() after s.tts.Close()\n")
 	<-s.Done
-	//VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
+	VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
 
 	WaitUntilServerDown(s.Cfg.Listen.IpPort)
 }
@@ -99,6 +104,19 @@ func (s *WebServer) IsStopRequested() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// RequestStop makes sure we only close
+// the s.requestStop channel once. Returns
+// true iff we closed s.requestStop on this call.
+func (s *WebServer) RequestStop() bool {
+	select {
+	case <-s.requestStop:
+		return false
+	default:
+		close(s.requestStop)
+		return true
 	}
 }
 

@@ -80,6 +80,12 @@ func (r *ConnReader) Start() {
 
 		for {
 			b := make([]byte, r.bufsz)
+
+			// read deadline needed here
+			const clientReadTimeoutMsec = 100
+			err := r.conn.SetReadDeadline(time.Now().Add(time.Millisecond * clientReadTimeoutMsec))
+			panicOn(err)
+
 			n, err := r.conn.Read(b)
 			if err != nil {
 				//fmt.Printf("\n debug: ConnReader got error '%s' reading from r.reader. Shutting down.\n", err)
@@ -372,7 +378,11 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 		"text/plain",
 		&bytes.Buffer{})
 
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+	}()
 
 	if err != nil {
 		return "", fmt.Errorf("ConnectDownstreamHttp: error during Post to '%s': '%s'", url, err)
@@ -541,6 +551,8 @@ func (reader *ConnReader) sendThenRecv(dest addr, key string, buf *bytes.Buffer)
 		"http://"+dest.IpPort+"/",
 		"application/octet-stream",
 		req)
+	defer resp.Body.Close()
+
 	if err != nil && err != io.EOF {
 		log.Println(err.Error())
 		//continue
@@ -557,6 +569,5 @@ func (reader *ConnReader) sendThenRecv(dest addr, key string, buf *bytes.Buffer)
 	po("client: resp.Body = '%s'\n", string(body))
 	_, err = reader.conn.Write(body)
 	panicOn(err)
-	resp.Body.Close()
 	return nil
 }
