@@ -121,27 +121,28 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	}
 
 	// createHandler
-	createHandler := func(c http.ResponseWriter, r *http.Request) {
+	createHandler := func(respW http.ResponseWriter, r *http.Request) {
 
 		po("Server::createHandler starting.\n")
 		_, err := ioutil.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
-			http.Error(c, "Could not read r.Body",
+			http.Error(respW, "Could not read r.Body",
 				http.StatusInternalServerError)
 			return
 		}
 
 		tunnel, err := s.NewTunnel(s.Cfg.Dest.IpPort)
 		if err != nil {
-			http.Error(c, fmt.Sprintf("Could not connect to destination: '%s'", err),
+			po("Server::createHandler: Could not connect to destination: '%s'.\n", err)
+			http.Error(respW, fmt.Sprintf("Could not connect to destination: '%s'", err),
 				http.StatusInternalServerError)
 			return
 		}
 		key := tunnel.key
 
 		po("Server::createHandler, about to write key '%s'.\n", key)
-		c.Write([]byte(key))
+		respW.Write([]byte(key))
 		po("Server::createHandler done for key '%x'.\n", key)
 	}
 

@@ -368,13 +368,21 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 		"text/plain",
 		&bytes.Buffer{})
 
+	defer resp.Body.Close()
+
 	if err != nil {
 		return "", fmt.Errorf("ConnectDownstreamHttp: error during Post to '%s': '%s'", url, err)
 	}
-	key, err := ioutil.ReadAll(resp.Body)
-	panicOn(err)
-	resp.Body.Close()
-	log.Printf("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x' of len %d\n\n", key, len(key))
+
+	key, err2 := ioutil.ReadAll(resp.Body)
+	panicOn(err2)
+
+	po("Post got back: resp.Status = '%s' resp.StatusCode = %d\n", resp.Status, resp.StatusCode)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("ConnectDownstreamHttp: error during Post to '%s': '%s'; body: '%s'", url, resp.Status, string(key))
+	}
+
+	log.Printf("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x' (string: '%s') of len %d\n\n", key, string(key), len(key))
 
 	return string(key), nil
 }
