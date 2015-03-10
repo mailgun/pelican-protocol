@@ -380,6 +380,12 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 
 	defer func() {
 		if resp != nil && resp.Body != nil {
+
+			// next two statements allow re-use of connection:
+			// https://groups.google.com/forum/#!topic/golang-nuts/ehZdZ7Wmr-c
+			// bradfitz, 8/9/13: "you have to read the entire res.Body for
+			// it to re-use the connection."
+			ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
 		}
 	}()

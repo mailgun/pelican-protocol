@@ -12,19 +12,31 @@ func TestFullRoundtripAllCanShutdown009(t *testing.T) {
 	defer web.Stop()
 
 	// start a reverse proxy
-	rev := NewReverseProxy(ReverseProxyConfig{Dest: web.Cfg.Listen})
+
+	// no leak with only rev + fwd together.
+
+	rdest := web.Cfg.Listen
+	//rdest := NewAddr1("127.0.0.1:9090")
+
+	rev := NewReverseProxy(ReverseProxyConfig{Dest: rdest})
 	rev.Start()
 	defer rev.Stop()
 
 	// start the forward proxy, talks to the reverse proxy.
+
+	// no leak when fwd is stand alone, and no leak without fwd.
+
+	//dest := NewAddr1("127.0.0.1:9090")
+
+	dest := rev.Cfg.Listen
+
 	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
-		Dest: rev.Cfg.Listen,
+		Dest: dest,
 	})
 	fmt.Printf("fwd = %#v\n", fwd)
 	fwd.Start() // fwd must start for the hang to happen, looks like leftover goroutine is from pwd.
 	fwd.Stop()
 
 	fmt.Printf("\n done with Test Full Roundtrip All Can Shutdown 009()\n")
-
 	// hangs for 60 seconds, then finishes???
 }
