@@ -56,4 +56,6 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 		cv.So(string(by), cv.ShouldEqual, "pong")
 	})
 	fmt.Printf("\n done with TestSocksProxyTalksToReverseProxy002()\n")
+
+	// hangs for 60 seconds, then finishes???
 }
