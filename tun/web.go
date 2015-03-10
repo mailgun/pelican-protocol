@@ -160,10 +160,15 @@ func PortIsBound(addr string) bool {
 
 func FetchUrl(url string) ([]byte, error) {
 	response, err := http.Get(url)
+
+	defer func() {
+		if response != nil && response.Body != nil {
+			response.Body.Close()
+		}
+	}()
 	if err != nil {
 		return []byte{}, err
 	} else {
-		defer response.Body.Close()
 		contents, err := ioutil.ReadAll(response.Body)
 		if err != nil {
 			return []byte{}, err
