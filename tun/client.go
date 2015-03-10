@@ -14,9 +14,9 @@ import (
 const bufSize = 1024
 
 type ConnReader struct {
-	reader io.Reader
-	readCh chan []byte
-	bufsz  int
+	conn net.Conn
+	//readCh chan []byte
+	bufsz int
 
 	Ready      chan bool
 	ReqStop    chan bool
@@ -24,18 +24,20 @@ type ConnReader struct {
 	key        string
 	notifyDone chan *ConnReader
 	noReport   bool
+	dest       addr
 }
 
-func NewConnReader(r io.Reader, bufsz int, key string, notifyDone chan *ConnReader) *ConnReader {
+func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnReader, dest addr) *ConnReader {
 	re := &ConnReader{
-		reader:     r,
-		readCh:     make(chan []byte),
+		conn: conn,
+		//readCh:     make(chan []byte),
 		bufsz:      bufsz,
 		Ready:      make(chan bool),
 		ReqStop:    make(chan bool),
 		Done:       make(chan bool),
 		key:        key,
 		notifyDone: notifyDone,
+		dest:       dest,
 	}
 	return re
 }
@@ -78,7 +80,7 @@ func (r *ConnReader) Start() {
 
 		for {
 			b := make([]byte, r.bufsz)
-			n, err := r.reader.Read(b)
+			n, err := r.conn.Read(b)
 			if err != nil {
 				//fmt.Printf("\n debug: ConnReader got error '%s' reading from r.reader. Shutting down.\n", err)
 				// typical: "debug: ConnReader got error 'EOF' reading from r.reader. Shutting down."
@@ -88,10 +90,9 @@ func (r *ConnReader) Start() {
 				return
 			}
 
-			select {
-			case r.readCh <- b[0:n]:
-			case <-r.ReqStop:
-				return
+			err = r.sendThenRecv(r.dest, r.key, bytes.NewBuffer(b[:n]))
+			if err != nil {
+				po("ConnReader loop: error during sendThenRecv: '%s'", err)
 			}
 
 			if r.IsStopRequested() {
@@ -110,9 +111,12 @@ type PelicanSocksProxyConfig struct {
 // for requesting a doneAlarm and preventing races
 // during testing
 type ReaderDoneAlarmTicket struct {
+	// the chan bool received on Reply can be waited on to know
+	// when the reader-done alarm fires. It is the most
+	// recent f.doneAlarm from the Start() goroutine.
 	Reply chan chan bool
 
-	// don't ready TopLoopCount until Reply is received. Race otherwise.
+	// don't read TopLoopCount until Reply is received. Race otherwise.
 	TopLoopCount int64
 }
 
@@ -455,7 +459,7 @@ func (f *PelicanSocksProxy) Start() error {
 					}
 				}
 
-				connReader := NewConnReader(upConn, bufSize, key, f.ConnReaderDoneCh)
+				connReader := NewConnReader(upConn, bufSize, key, f.ConnReaderDoneCh, f.Cfg.Dest)
 				connReader.Start()
 				f.readers[connReader] = true
 				//po("after add, len(readers) = %d\n", len(f.readers))
@@ -495,40 +499,28 @@ func (f *PelicanSocksProxy) Start() error {
 				return
 
 				/*
-					case b := <-read:
-						// fill buf here
-						po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
-						buf.Write(b)
-						po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
-
+							case b := <-read:
+								// fill buf here
+								po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
+								buf.Write(b)
+								po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
 					case <-tick.C:
 						sendCount++
 						po("\n ====================\n client sendCount = %d\n ====================\n", sendCount)
-						po("client: sendCount %d, got tick.C. key as always(?) = '%x'. buf is now size %d\n", sendCount, key, buf.Len())
-						// write buf to new http request, starting with key
-						req := bytes.NewBuffer(key)
-						buf.WriteTo(req)
-						resp, err := http.Post(
-							"http://"+f.Cfg.Dest.IpPort+"/ping",
-							"application/octet-stream",
-							req)
-						if err != nil && err != io.EOF {
-							log.Println(err.Error())
-							continue
+						var key string
+						for reader, _ := range f.readers {
+							key = reader.key
+
+							po("client: sendCount %d, got tick.C. key = '%x'. buf is now size %d\n",
+								sendCount, key, buf.Len())
+
+							err := reader.sendThenRecv(f.Cfg.Dest, key, buf)
+							if err != nil {
+								po("error during sendThenRecv: '%s'", err)
+							}
 						}
-
-						// write http response response to conn
-
-						// we take apart the io.Copy to print out the response for debugging.
-						//_, err = io.Copy(conn, resp.Body)
-
-						body, err := ioutil.ReadAll(resp.Body)
-						panicOn(err)
-						po("client: resp.Body = '%s'\n", string(body))
-						_, err = conn.Write(body)
-						panicOn(err)
-						resp.Body.Close()
 				*/
+
 			}
 		}
 	}()
@@ -538,5 +530,33 @@ func (f *PelicanSocksProxy) Start() error {
 	// will be closed in turn.
 	<-f.doneAlarm
 
+	return nil
+}
+
+func (reader *ConnReader) sendThenRecv(dest addr, key string, buf *bytes.Buffer) error {
+	// write buf to new http request, starting with key
+	req := bytes.NewBuffer([]byte(key))
+	buf.WriteTo(req) // drains buf into req
+	resp, err := http.Post(
+		"http://"+dest.IpPort+"/",
+		"application/octet-stream",
+		req)
+	if err != nil && err != io.EOF {
+		log.Println(err.Error())
+		//continue
+		return err
+	}
+
+	// write http response response to conn
+
+	// we take apart the io.Copy to print out the response for debugging.
+	//_, err = io.Copy(conn, resp.Body)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	panicOn(err)
+	po("client: resp.Body = '%s'\n", string(body))
+	_, err = reader.conn.Write(body)
+	panicOn(err)
+	resp.Body.Close()
 	return nil
 }
