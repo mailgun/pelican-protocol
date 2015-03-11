@@ -16,8 +16,9 @@ func main() {
 
 	rev := tun.NewReverseProxy(tun.ReverseProxyConfig{Dest: rdest, Listen: rlsn})
 	rev.Start()
-	defer rev.Stop()
 
 	time.Sleep(60 * time.Minute)
-	fmt.Printf("rev stopping.\n")
+	rev.Stop()
+	fmt.Printf("rev stopped.\n")
+	time.Sleep(600 * time.Minute)
 }
