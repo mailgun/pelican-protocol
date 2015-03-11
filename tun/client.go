@@ -551,6 +551,20 @@ func (f *PelicanSocksProxy) Start() error {
 
 func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer) error {
 	// write buf to new http request, starting with key
+
+	po("\n\n debug: sendThenRecv called with dest: '%#v', key: '%s', and buf: '%s'\n", dest, key, string(buf.Bytes()))
+
+	if dest.IpPort == "" {
+		return fmt.Errorf("dest.IpPort was empty the string")
+	}
+	if dest.Port == 0 {
+		return fmt.Errorf("dest.Port was 0")
+	}
+
+	if key == "" || len(key) != KeyLen {
+		return fmt.Errorf("sendThenRecv error: key '%s' was not of expected length %d", key, KeyLen)
+	}
+
 	req := bytes.NewBuffer([]byte(key))
 	buf.WriteTo(req) // drains buf into req
 	resp, err := http.Post(
