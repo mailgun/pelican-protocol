@@ -120,7 +120,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 
 			// or instead: we'll assume that such multiplexing has already been handled for us up front.
 			// e.g.
-			http.Error(c, fmt.Sprintf("Couldn't read key, not enough bytes in body. len(body) = %d\n",
+			http.Error(c, fmt.Sprintf("Pelican Protocol key not found or couldn't read key, not enough bytes in body. len(body) = %d\n",
 				len(body)),
 				http.StatusBadRequest)
 			return
