@@ -18,7 +18,7 @@ func TestWebServer888(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	s := NewWebServer(WebServerConfig{}, mux)
+	s := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
 	s.Start()
 	defer s.Stop()
 

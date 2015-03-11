@@ -153,7 +153,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	mux.HandleFunc("/create", createHandler)
 
 	webcfg := WebServerConfig{Listen: s.Cfg.Listen}
-	s.web = NewWebServer(webcfg, mux)
+	s.web = NewWebServer(webcfg, mux, DefaultWebReadTimeout)
 	//VPrintf("\n Server::createHandler(): about to w.web.Start() with webcfg = '%#v'\n", webcfg)
 	s.web.Start()
 

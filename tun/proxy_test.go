@@ -19,7 +19,7 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web := NewWebServer(WebServerConfig{}, mux)
+	web := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
 	web.Start()
 	defer web.Stop()
 

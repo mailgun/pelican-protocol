@@ -46,6 +46,8 @@ import (
 	"time"
 )
 
+const DefaultWebReadTimeout time.Duration = 60e9
+
 // CustomHttpServer is an http.Server with better defaults and built-in graceful stop.
 type CustomHttpServer struct {
 	http.Server
@@ -57,8 +59,8 @@ type CustomHttpServer struct {
 }
 
 // NewCustomHttpServer returns an http.Server with better defaults and built-in graceful
-// stop.
-func NewCustomHttpServer(addr string, handler http.Handler) *CustomHttpServer {
+// stop. Default for readTimeout could be 60 * time.Second, or as you need.
+func NewCustomHttpServer(addr string, handler http.Handler, readTimeout time.Duration) *CustomHttpServer {
 	ch := make(chan struct{})
 	s := &CustomHttpServer{
 		Server: http.Server{
@@ -67,8 +69,8 @@ func NewCustomHttpServer(addr string, handler http.Handler) *CustomHttpServer {
 				Handler: handler,
 			},
 			MaxHeaderBytes: 4096,
-			ReadTimeout:    60e9, // These are absolute times which must be
-			WriteTimeout:   60e9, // longer than the longest {up,down}load.
+			ReadTimeout:    readTimeout, // These are absolute times which must be
+			WriteTimeout:   30e9,        // longer than the longest {up,down}load.
 		},
 		ch:    ch,
 		conns: make(map[string]net.Conn),
@@ -104,7 +106,7 @@ func NewTLSServer(
 	addr, cert, key string,
 	handler http.Handler,
 ) (*CustomHttpServer, error) {
-	s := NewCustomHttpServer(addr, handler)
+	s := NewCustomHttpServer(addr, handler, DefaultWebReadTimeout)
 	return s, s.TLS(cert, key)
 }
 
