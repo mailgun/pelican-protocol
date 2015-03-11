@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	listenAddr = flag.String("listen", ":2222", "local listen address")
-	destAddr   = flag.String("dest", fmt.Sprintf("%s:%d", tun.ReverseProxyIp, tun.ReverseProxyPort), "remote destination IP:port")
+	listenAddr = flag.String("listen", ":80", "local listen address")
+	destAddr   = flag.String("dest", ":8080", "remote destination IP:port")
 )
 
 func main() {
