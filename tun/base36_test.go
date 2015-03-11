@@ -1,7 +1,6 @@
 package pelicantun
 
 import (
-	"fmt"
 	"math/big"
 	"testing"
 
@@ -11,6 +10,8 @@ import (
 func TestBase36Encode(t *testing.T) {
 
 	var s string
+	var i *big.Int
+	var by []byte
 	cv.Convey("BigIntToBase36 should encode big.Ints correctly", t, func() {
 
 		_, s = BigIntToBase36(big.NewInt(0))
@@ -25,6 +26,9 @@ func TestBase36Encode(t *testing.T) {
 		_, s = BigIntToBase36(big.NewInt(10))
 		cv.So(s, cv.ShouldResemble, "0a")
 
+		i, by = Base36toBigInt([]byte(s))
+		cv.So(i, cv.ShouldResemble, big.NewInt(10))
+
 		_, s = BigIntToBase36(big.NewInt(35))
 		cv.So(s, cv.ShouldResemble, "0z")
 
@@ -37,14 +41,29 @@ func TestBase36Encode(t *testing.T) {
 		_, s = BigIntToBase36(big.NewInt(36*36 + 35))
 		cv.So(s, cv.ShouldResemble, "010z")
 
+		i, by = Base36toBigInt([]byte(s))
+		//fmt.Printf("\ni = %v, by = '%x'\n", i, by)
+		cv.So(i, cv.ShouldResemble, big.NewInt(1331)) // 1331 == 36*36+35
+
 		_, s = BigIntToBase36(big.NewInt(36*35 + 35))
 		cv.So(s, cv.ShouldResemble, "00zz")
 
 		_, s = BigIntToBase36(big.NewInt(36*36*36 + 1))
 		cv.So(s, cv.ShouldResemble, "1001")
 
-		i, by := Base36toBigInt([]byte(s))
+		i, by = Base36toBigInt([]byte(s))
 		cv.So(i, cv.ShouldResemble, big.NewInt(46657)) // 46657 == 36*36*36 + 1
-		fmt.Printf("\ni = %v, by = '%x'\n", i, by)
+		//fmt.Printf("\ni = %v, by = '%x'\n", i, by)
+	})
+}
+
+func TestBase36Decode(t *testing.T) {
+
+	cv.Convey("Base36toBigInt and decode36 should decode correctly", t, func() {
+
+		for i, r := range e36 {
+			cv.So(decode36(r), cv.ShouldEqual, i)
+		}
+
 	})
 }

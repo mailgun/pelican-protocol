@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -322,31 +321,4 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.conn moved %d bytes.\n", n64)
 	close(pack.done)
 	po("tunnel::handle(pack) done.\n")
-}
-
-const randByteCount = 32
-
-func GenPelicanKey() []byte {
-	key := make([]byte, 2*randByteCount)
-	for i := 0; i < 2*randByteCount; i++ {
-		key[i] = byte(rand.Int())
-	}
-
-	hmac := Sha256HMAC(key[:randByteCount], key[randByteCount:2*randByteCount])
-	signed_key := make([]byte, len(key)+len(hmac))
-	fmt.Printf("\n\n GenPelicanKey, signed_key is len %d\n", len(signed_key))
-	copy(signed_key, key)
-	copy(signed_key[2*randByteCount:], hmac)
-
-	alpha_signed_key := EncodeBytesBase36(signed_key)
-
-	fmt.Printf("\n\n GenPelicanKey, alpha_signed_key is len %d\n", len(alpha_signed_key))
-	return alpha_signed_key
-}
-
-func IsLegitPelicanKey(alpha_signed_key []byte) bool {
-	_, key := Base36toBigInt(alpha_signed_key)
-	sig := key[2*randByteCount:]
-
-	return CheckSha256HMAC(key[:randByteCount], sig, key[randByteCount:2*randByteCount])
 }

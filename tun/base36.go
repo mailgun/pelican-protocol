@@ -46,13 +46,15 @@ func encode36(i int64) rune {
 }
 
 func decode36(r rune) int64 {
-	if r < rune('0') {
-		panic(fmt.Sprintf("'%v' is below '0' domain limit", r))
+	switch {
+	case r >= rune('0') && r <= rune('9'):
+		return int64(r - rune('0'))
+	case r >= rune('a') && r <= rune('z'):
+		return int64(r-rune('a')) + 10
+	default:
+		panic(fmt.Sprintf("'%v' is outside our domain", r))
 	}
-	if r > rune('z') {
-		panic(fmt.Sprintf("'%v' is above 'z' domain limit", r))
-	}
-	return int64(r - rune('0'))
+	return 0
 }
 
 // returns both a []byte and a string encoding of the bigInt val
@@ -128,15 +130,16 @@ func Base36toBigInt(a []byte) (*big.Int, []byte) {
 		r = ru[i]
 		next = big.NewInt(decode36(r))
 
-		pre := big.NewInt(1)
+		pre := new(big.Int)
 		pre.Mul(next, mult)
+		//fmt.Printf("\n   a = '%s', ru='%v', at i = %d, r = '%v', pre = %v, next = %v\n\n", string(a), ru, i, r, pre, next)
 		tot.Add(tot, pre)
 
 		mult.Mul(mult, b36)
 	}
 
 	// pad res on the right with zeros if need be
-	max := big.NewInt(1)
+	max := new(big.Int)
 	max.Mul(mult, b36)
 
 	M := len(max.Bytes())
