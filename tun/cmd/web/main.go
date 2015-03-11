@@ -14,7 +14,9 @@ var (
 )
 
 func main() {
+	flag.Parse()
 	lsn := tun.NewAddr1(*listenAddr)
+	lsn.SetIpPort()
 
 	fmt.Printf("web listening on '%#v'\n", lsn)
 
