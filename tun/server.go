@@ -334,10 +334,13 @@ func GenPelicanKey() []byte {
 
 	hmac := Sha256HMAC(key[:randByteCount], key[randByteCount:2*randByteCount])
 	signed_key := make([]byte, len(key)+len(hmac))
+	fmt.Printf("\n\n GenPelicanKey, signed_key is len %d\n", len(signed_key))
 	copy(signed_key, key)
 	copy(signed_key[2*randByteCount:], hmac)
 
 	alpha_signed_key := EncodeBytesBase36(signed_key)
+
+	fmt.Printf("\n\n GenPelicanKey, alpha_signed_key is len %d\n", len(alpha_signed_key))
 	return alpha_signed_key
 }
 
