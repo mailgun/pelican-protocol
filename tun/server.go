@@ -41,7 +41,7 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 		cfg.Listen.Port = GetAvailPort()
 	}
 	if cfg.Listen.Ip == "" {
-		cfg.Listen.Ip = "127.0.0.1"
+		cfg.Listen.Ip = "0.0.0.0"
 	}
 	cfg.Listen.SetIpPort()
 

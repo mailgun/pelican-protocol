@@ -175,7 +175,7 @@ func (f *PelicanSocksProxy) SetDefault() {
 		f.Cfg.Listen.Port = GetAvailPort()
 	}
 	if f.Cfg.Listen.Ip == "" {
-		f.Cfg.Listen.Ip = "127.0.0.1"
+		f.Cfg.Listen.Ip = "0.0.0.0"
 	}
 	f.Cfg.Listen.SetIpPort()
 
