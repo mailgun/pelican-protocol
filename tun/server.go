@@ -285,6 +285,7 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	}
 	// done in packetHandler now: pack.request.Body.Close()
 	if err == io.EOF {
+		t.conn.Close() // let the server shutdown sooner rather than holding open the connection.
 		t.conn = nil
 		log.Printf("tunnel::handle(pack): EOF for key '%x'", t.key)
 		return
@@ -293,7 +294,7 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	pack.resp.Header().Set("Content-type", "application/octet-stream")
 	// temp for debug: n64, err := io.Copy(pack.resp, t.conn)
 
-	b500 := make([]byte, 1<<17)
+	b500 := make([]byte, 1<<17) // 128KB
 
 	err = t.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)

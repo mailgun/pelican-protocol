@@ -6,9 +6,8 @@ import (
 	"net"
 	"net/http"
 	"time"
-	// _ "net/http/pprof" // side-effect: installs handlers for /debug/pprof
 
-	"github.com/glycerine/go-tigertonic"
+	// _ "net/http/pprof" // side-effect: installs handlers for /debug/pprof
 )
 
 type WebServer struct {
@@ -17,9 +16,9 @@ type WebServer struct {
 
 	requestStop chan bool // private. Users should call Stop().
 
-	// we use tigertonic because it actually implements graceful stopping;
+	// we use tigertonic-based web-server because it implements graceful stopping;
 	// as opposed to the built-in http library web server.
-	tts *tigertonic.Server
+	tts *CustomHttpServer
 
 	started bool
 	stopped bool
@@ -53,8 +52,8 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux) *WebServer {
 		requestStop: make(chan bool),
 	}
 
-	s.tts = tigertonic.NewServer(s.Cfg.Listen.IpPort, mux)
-	//s.tts = tigertonic.NewServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
+	s.tts = NewCustomHttpServer(s.Cfg.Listen.IpPort, mux)
+	//s.tts = NewCustomHttpServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
 
 	return s
 }
