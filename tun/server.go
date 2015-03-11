@@ -91,6 +91,7 @@ func (s *ReverseProxy) Start() {
 
 			case <-s.ReqStop:
 				s.web.Stop()
+				po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
 				close(s.Done)
 				return
 			}

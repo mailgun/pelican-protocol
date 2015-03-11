@@ -91,9 +91,9 @@ func (s *WebServer) Stop() {
 	if weClosed {
 		s.tts.Close() // without weClosed check, hang here because tts is already down and gone.
 	}
-	VPrintf("in WebServer::Stop() after s.tts.Close()\n")
+	VPrintf("in WebServer::Stop() after s.tts.Close() ... s = %p\n", s)
 	<-s.Done
-	VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s'\n", s.Cfg.Listen.IpPort)
+	VPrintf("in WebServer::Stop() after <-s.Done(): s.Addr = '%s' ... s = %p\n", s.Cfg.Listen.IpPort, s)
 
 	WaitUntilServerDown(s.Cfg.Listen.IpPort)
 }

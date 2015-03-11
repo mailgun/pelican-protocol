@@ -18,8 +18,6 @@ func main() {
 		Dest:   fdest,
 	})
 	fwd.Start()
-
-	time.Sleep(60 * time.Minute)
 	fwd.Stop()
 	fmt.Printf("fwd stopped.\n")
 	time.Sleep(600 * time.Minute)

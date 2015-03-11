@@ -557,7 +557,12 @@ func (reader *ConnReader) sendThenRecv(dest addr, key string, buf *bytes.Buffer)
 		"http://"+dest.IpPort+"/",
 		"application/octet-stream",
 		req)
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			ioutil.ReadAll(resp.Body) // read anything leftover, so connection can be reused.
+			resp.Body.Close()
+		}
+	}()
 
 	if err != nil && err != io.EOF {
 		log.Println(err.Error())
@@ -565,7 +570,7 @@ func (reader *ConnReader) sendThenRecv(dest addr, key string, buf *bytes.Buffer)
 		return err
 	}
 
-	// write http response response to conn
+	// write http response to conn
 
 	// we take apart the io.Copy to print out the response for debugging.
 	//_, err = io.Copy(conn, resp.Body)

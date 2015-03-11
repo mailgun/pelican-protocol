@@ -24,7 +24,7 @@ func main() {
 	web := tun.NewWebServer(tun.WebServerConfig{Listen: lsn}, mux)
 	web.Start() // without this, hang doesn't happen
 
-	time.Sleep(60 * time.Minute)
+	time.Sleep(30 * time.Second)
 
 	web.Stop()
 
