@@ -8,7 +8,7 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 )
 
-func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
+func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	// setup a mock web server that replies to ping with pong.
 	mux := http.NewServeMux()
@@ -46,7 +46,7 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 		panic("fwd proxy not up")
 	}
 
-	cv.Convey("Given a ForwardProxy and a ReverseProxy, they should communicate over http", t, func() {
+	cv.Convey("Given a ForwardProxy and a ReverseProxy, in order to acheive low-latency sends from server to client, long-polling with two sockets (one send and one receive) should be used.", t, func() {
 
 		po("\n fetching url from %v\n", fwd.Cfg.Listen.IpPort)
 
@@ -55,5 +55,6 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 		//fmt.Printf("by:'%s'\n", string(by))
 		cv.So(string(by), cv.ShouldEqual, "pong")
 	})
-	fmt.Printf("\n done with TestSocksProxyTalksToReverseProxy002()\n")
+
+	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }
