@@ -315,7 +315,7 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	}
 
 	// don't panicOn(err)
-	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.conn moved %d bytes", n64)
+	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.conn moved %d bytes.\n", n64)
 	close(pack.done)
 	po("tunnel::handle(pack) done.\n")
 }

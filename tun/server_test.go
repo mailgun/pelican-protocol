@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -39,7 +40,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web := NewWebServer(WebServerConfig{}, mux, 2*specialFastTestReadTimeout)
+	web := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
 	web.Start()
 	defer web.Stop()
 
@@ -57,12 +58,17 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 		panic("reverse proxy server did not come up")
 	}
 
-	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver", t, func() {
+	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver\n", t, func() {
 
 		tunnel, err := rev.NewTunnel(web.Cfg.Listen.IpPort)
 		cv.So(err, cv.ShouldEqual, nil)
 
-		body := []byte(fmt.Sprintf("GET /ping"))
+		body := []byte(`GET /ping HTTP/1.1
+Host: 127.0.0.1:54284
+User-Agent: Go 1.1 package http
+Accept-Encoding: gzip
+
+`)
 
 		mockRw := &MockResponseWriter{}
 		mockReq, err := http.NewRequest("GET", "/ping", bytes.NewBuffer(body))
@@ -71,12 +77,17 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 		}
 		reply, err := rev.injectPacket(mockRw, mockReq, body, tunnel.key)
 		cv.So(err, cv.ShouldEqual, nil)
-		cv.So(string(reply), cv.ShouldEqual, "pong")
+		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)
+		cv.So(strings.Contains(string(reply), `Content-Length: 4`), cv.ShouldEqual, true)
+		cv.So(strings.HasSuffix(string(reply), "pong"), cv.ShouldEqual, true)
 
 		fmt.Printf("\n about to do rev.Stop()\n")
 		rev.Stop()
 		fmt.Printf("\n done with rev.Stop()\n")
+
 		web.Stop()
 		fmt.Printf("\n done with web.Stop()\n")
 	})
+
+	fmt.Printf("\n done with TestReverseProxyToUltimateWebServerMock005\n")
 }
