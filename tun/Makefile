@@ -7,6 +7,9 @@ all:
 	cd server-tcp-over-http; go build -o server-tcp-over-http; cp -p server-tcp-over-http ../bin
 	cd send; go build -o send; cp -p send ../bin
 	cd dest; go build -o dest; cp -p dest ../bin
+	cd cmd/web; go build; cp -p web ../../bin
+	cd cmd/rev; go build; cp -p rev ../../bin
+	cd cmd/fwd; go build; cp -p fwd ../../bin
 
 debug:
 	go install  -gcflags "-N -l" 

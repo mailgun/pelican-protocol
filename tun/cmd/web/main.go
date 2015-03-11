@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	tun "github.com/mailgun/pelican-protocol/tun"
 	"net/http"
 	"time"
+
+	tun "github.com/mailgun/pelican-protocol/tun"
 )
 
 func main() {
@@ -21,14 +22,12 @@ func main() {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web := tun.NewWebServer(tun.WebServerConfig{Listen: lsn}, mux)
+	web := tun.NewWebServer(tun.WebServerConfig{Listen: lsn}, mux, 60*time.Minute)
 	web.Start() // without this, hang doesn't happen
-
-	time.Sleep(30 * time.Second)
 
 	web.Stop()
 
-	fmt.Printf("web done.\n")
+	fmt.Printf("web listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
 
-	time.Sleep(600 * time.Minute)
+	select {}
 }

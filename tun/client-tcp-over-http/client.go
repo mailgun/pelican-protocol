@@ -23,6 +23,10 @@ func main() {
 	flag.Parse()
 	log.SetPrefix("tun.client: ")
 
-	f := tun.NewForwardProxy(*listenAddr, *httpAddr, *tickInterval)
-	f.ListenAndServe()
+	fwd := tun.NewPelicanSocksProxy(tun.PelicanSocksProxyConfig{
+		Listen: tun.NewAddr1(*listenAddr),
+		Dest:   tun.NewAddr1(*httpAddr),
+	})
+	fwd.Start()
+	select {}
 }

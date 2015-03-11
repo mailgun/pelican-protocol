@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
+
 	tun "github.com/mailgun/pelican-protocol/tun"
-	"time"
 )
 
 func main() {
@@ -18,7 +18,9 @@ func main() {
 		Dest:   fdest,
 	})
 	fwd.Start()
-	fwd.Stop()
-	fmt.Printf("fwd stopped.\n")
-	time.Sleep(600 * time.Minute)
+
+	fmt.Printf("fwd listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
+
+	select {}
+
 }

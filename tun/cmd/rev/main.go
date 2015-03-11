@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
+
 	tun "github.com/mailgun/pelican-protocol/tun"
-	"time"
 )
 
 func main() {
@@ -17,8 +17,7 @@ func main() {
 	rev := tun.NewReverseProxy(tun.ReverseProxyConfig{Dest: rdest, Listen: rlsn})
 	rev.Start()
 
-	time.Sleep(30 * time.Second)
-	rev.Stop()
-	fmt.Printf("rev stopped.\n")
-	time.Sleep(600 * time.Minute)
+	fmt.Printf("rev listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
+
+	select {}
 }
