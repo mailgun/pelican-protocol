@@ -109,15 +109,22 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		po("top level handler(): in '/' and '/ping' packetHandler, packet len without key: %d: making new tunnelPacket, url = '%s', http.Request r = '%#v'. r.Body = '%s'\n",
 			len(body)-KeyLen, r.URL, *r, string(body))
 
-		if len(body) < KeyLen {
+		key := make([]byte, KeyLen)
+		copy(key, body)
+		legitPelicanKey := IsLegitPelicanKey(key)
+
+		if len(body) < KeyLen || !legitPelicanKey {
+			// pass through here to the downstream webserver directly, by-passing pelican protocol stuff
+
+			// here we could act simply as a pass through proxy
+
+			// or instead: we'll assume that such multiplexing has already been handled for us up front.
+			// e.g.
 			http.Error(c, fmt.Sprintf("Couldn't read key, not enough bytes in body. len(body) = %d\n",
 				len(body)),
 				http.StatusBadRequest)
 			return
 		}
-
-		key := make([]byte, KeyLen)
-		copy(key, body)
 
 		s.injectPacket(c, r, body[KeyLen:], string(key))
 	}
