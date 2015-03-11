@@ -40,7 +40,7 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Dura
 		cfg.Listen.Port = GetAvailPort()
 	}
 	if cfg.Listen.Ip == "" {
-		cfg.Listen.Ip = "127.0.0.1"
+		cfg.Listen.Ip = "0.0.0.0"
 	}
 	cfg.Listen.SetIpPort()
 	//VPrintf("hey hey: starting webserver on '%s'\n", cfg.Listen.IpPort)
