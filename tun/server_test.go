@@ -80,13 +80,6 @@ Accept-Encoding: gzip
 		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)
 		cv.So(strings.Contains(string(reply), `Content-Length: 4`), cv.ShouldEqual, true)
 		cv.So(strings.HasSuffix(string(reply), "pong"), cv.ShouldEqual, true)
-
-		fmt.Printf("\n about to do rev.Stop()\n")
-		rev.Stop()
-		fmt.Printf("\n done with rev.Stop()\n")
-
-		web.Stop()
-		fmt.Printf("\n done with web.Stop()\n")
 	})
 
 	fmt.Printf("\n done with TestReverseProxyToUltimateWebServerMock005\n")
