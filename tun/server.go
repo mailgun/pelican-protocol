@@ -197,7 +197,7 @@ type tunnelPacket struct {
 var po = VPrintf
 
 func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
-	key := genKey()
+	key := GenPelicanKey()
 
 	po("ReverseProxy::NewTunnel() top. key = '%x'\n", key)
 	t = &tunnel{
@@ -324,10 +324,26 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	po("tunnel::handle(pack) done.\n")
 }
 
-func genKey() []byte {
-	key := make([]byte, KeyLen)
-	for i := 0; i < KeyLen; i++ {
+const randByteCount = 32
+
+func GenPelicanKey() []byte {
+	key := make([]byte, 2*randByteCount)
+	for i := 0; i < 2*randByteCount; i++ {
 		key[i] = byte(rand.Int())
 	}
-	return key
+
+	hmac := Sha256HMAC(key[:randByteCount], key[randByteCount:2*randByteCount])
+	signed_key := make([]byte, len(key)+len(hmac))
+	copy(signed_key, key)
+	copy(signed_key[2*randByteCount:], hmac)
+
+	alpha_signed_key := EncodeBytesBase36(signed_key)
+	return alpha_signed_key
+}
+
+func IsLegitPelicanKey(alpha_signed_key []byte) bool {
+	_, key := Base36toBigInt(alpha_signed_key)
+	sig := key[2*randByteCount:]
+
+	return CheckSha256HMAC(key[:randByteCount], sig, key[randByteCount:2*randByteCount])
 }
