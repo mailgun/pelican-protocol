@@ -7,7 +7,7 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 )
 
-func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
+func TestReuseSockets011(t *testing.T) {
 
 	web, rev, fwd, err := StartTestSystemWithPing()
 	panicOn(err)
@@ -15,7 +15,7 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 	defer rev.Stop()
 	defer fwd.Stop()
 
-	cv.Convey("Given a ForwardProxy and a ReverseProxy, they should communicate over http", t, func() {
+	cv.Convey("Given a ForwardProxy and a ReverseProxy communicating over http, in order to acheive low-latency sends, the sockets should be re-used by http-pipelining.", t, func() {
 
 		po("\n fetching url from %v\n", fwd.Cfg.Listen.IpPort)
 
@@ -24,5 +24,6 @@ func TestFullRoundtripSocksProxyTalksToReverseProxy002(t *testing.T) {
 		//fmt.Printf("by:'%s'\n", string(by))
 		cv.So(string(by), cv.ShouldEqual, "pong")
 	})
-	fmt.Printf("\n done with TestSocksProxyTalksToReverseProxy002()\n")
+
+	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }
