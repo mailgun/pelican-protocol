@@ -29,7 +29,7 @@ type WebServerConfig struct {
 	Listen addr
 }
 
-func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Duration) *WebServer {
+func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Duration) (*WebServer, error) {
 
 	if mux == nil {
 		mux = http.NewServeMux()
@@ -45,6 +45,11 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Dura
 	cfg.Listen.SetIpPort()
 	//VPrintf("hey hey: starting webserver on '%s'\n", cfg.Listen.IpPort)
 
+	// check that it isn't already occupied
+	if PortIsBound(cfg.Listen.IpPort) {
+		return nil, fmt.Errorf("NewWebServer error: could not start because port already in-use on '%s'", cfg.Listen.IpPort)
+	}
+
 	s := &WebServer{
 		Cfg:         cfg,
 		ServerReady: make(chan bool),
@@ -55,7 +60,7 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Dura
 	s.tts = NewCustomHttpServer(s.Cfg.Listen.IpPort, mux, readTimeout)
 	//s.tts = NewCustomHttpServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
 
-	return s
+	return s, nil
 }
 
 func (s *WebServer) Start() {

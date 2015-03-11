@@ -30,7 +30,8 @@ func StartTestSystemWithPing() (*WebServer, *ReverseProxy, *PelicanSocksProxy, e
 		fmt.Fprintf(w, "pong")
 	})
 
-	web := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
+	web, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
+	panicOn(err)
 	web.Start()
 
 	if !PortIsBound(web.Cfg.Listen.IpPort) {

@@ -3,6 +3,7 @@ package pelicantun
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -18,7 +19,8 @@ func TestWebServer888(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	s := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
+	s, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
+	panicOn(err)
 	s.Start()
 	defer s.Stop()
 
@@ -34,5 +36,25 @@ func TestWebServer888(t *testing.T) {
 		s.Stop()
 		cv.So(PortIsBound(s.Cfg.Listen.IpPort), cv.ShouldEqual, false)
 	})
+
+}
+
+func TestWebServerPortAlreadyTakenDetected801(t *testing.T) {
+
+	s, err := NewWebServer(WebServerConfig{}, nil, specialFastTestReadTimeout)
+	panicOn(err)
+	s.Start()
+	defer s.Stop()
+
+	cv.Convey("NewWebServer on a port that is already taken should return an error\n", t,
+		func() {
+
+			cv.So(PortIsBound(s.Cfg.Listen.IpPort), cv.ShouldEqual, true)
+
+			_, err := NewWebServer(WebServerConfig{Listen: s.Cfg.Listen}, nil, specialFastTestReadTimeout)
+			cv.So(err, cv.ShouldNotEqual, nil)
+			fmt.Printf("err = '%s'\n", err)
+			cv.So(strings.HasPrefix(err.Error(), "NewWebServer error: could not start because port already in-use"), cv.ShouldEqual, true)
+		})
 
 }

@@ -22,10 +22,11 @@ func main() {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web := tun.NewWebServer(tun.WebServerConfig{Listen: lsn}, mux, 60*time.Minute)
-	web.Start() // without this, hang doesn't happen
-
-	web.Stop()
+	web, err := tun.NewWebServer(tun.WebServerConfig{Listen: lsn}, mux, 60*time.Second)
+	if err != nil {
+		panic(err)
+	}
+	web.Start()
 
 	fmt.Printf("web listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
 
