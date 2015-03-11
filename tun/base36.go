@@ -57,6 +57,23 @@ func decode36(r rune) int64 {
 	return 0
 }
 
+// check to see if all runes are in the enc36 range
+func IsAlphaBase36(ru []rune) bool {
+
+	okay := true
+	for _, r := range ru {
+		switch {
+		case r >= rune('0') && r <= rune('9'):
+			continue
+		case r >= rune('a') && r <= rune('z'):
+			continue
+		default:
+			okay = false
+		}
+	}
+	return okay
+}
+
 // returns both a []byte and a string encoding of the bigInt val
 // using only a-z0-9 characters. Assumes a positive bigInt val.
 // Negative val results are undefined.
@@ -118,8 +135,13 @@ func CheckSha256HMAC(message, messageMAC, key []byte) bool {
 // argument is padded on the left with zeros to
 // reach the largest possible big.Int number
 // for len(a) bytes.
-func Base36toBigInt(a []byte) (*big.Int, []byte) {
+func Base36toBigInt(a []byte) (*big.Int, []byte, error) {
 	ru := []rune(string(a))
+
+	if !IsAlphaBase36(ru) {
+		return nil, []byte{}, fmt.Errorf("not base36 input byte string when translated -> string -> []rune")
+	}
+
 	var r rune
 	var next *big.Int
 	tot := new(big.Int)
@@ -154,5 +176,5 @@ func Base36toBigInt(a []byte) (*big.Int, []byte) {
 	// pad res on left with zeros
 	copy(res[skip:], totbytes)
 
-	return tot, res
+	return tot, res, nil
 }
