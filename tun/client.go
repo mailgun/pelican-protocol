@@ -24,10 +24,10 @@ type ConnReader struct {
 	key        string
 	notifyDone chan *ConnReader
 	noReport   bool
-	dest       addr
+	dest       Addr
 }
 
-func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnReader, dest addr) *ConnReader {
+func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnReader, dest Addr) *ConnReader {
 	re := &ConnReader{
 		conn: conn,
 		//readCh:     make(chan []byte),
@@ -109,8 +109,8 @@ func (r *ConnReader) Start() {
 }
 
 type PelicanSocksProxyConfig struct {
-	Listen           addr
-	Dest             addr
+	Listen           Addr
+	Dest             Addr
 	tickIntervalMsec int
 }
 
@@ -282,7 +282,7 @@ func (f *PelicanSocksProxy) OpenClientCount() int {
 // the PSP doesn't have to block.
 //
 type TcpUpstreamReceiver struct {
-	Listen              addr
+	Listen              Addr
 	UpstreamTcpConnChan chan net.Conn
 	Ready               chan bool
 	ReqStop             chan bool
@@ -291,7 +291,7 @@ type TcpUpstreamReceiver struct {
 	lsn net.Listener
 }
 
-func NewTcpUpstreamReceiver(a addr) *TcpUpstreamReceiver {
+func NewTcpUpstreamReceiver(a Addr) *TcpUpstreamReceiver {
 	r := &TcpUpstreamReceiver{
 		Listen:              a,
 		UpstreamTcpConnChan: make(chan net.Conn),
@@ -549,7 +549,7 @@ func (f *PelicanSocksProxy) Start() error {
 	return nil
 }
 
-func (reader *ConnReader) sendThenRecv(dest addr, key string, buf *bytes.Buffer) error {
+func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer) error {
 	// write buf to new http request, starting with key
 	req := bytes.NewBuffer([]byte(key))
 	buf.WriteTo(req) // drains buf into req

@@ -14,8 +14,8 @@ import (
 )
 
 type ReverseProxyConfig struct {
-	Listen addr
-	Dest   addr
+	Listen Addr
+	Dest   Addr
 }
 
 // one ReverseProxy can contain many tunnels

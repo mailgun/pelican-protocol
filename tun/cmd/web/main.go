@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"time"
@@ -8,8 +9,12 @@ import (
 	tun "github.com/mailgun/pelican-protocol/tun"
 )
 
+var (
+	listenAddr = flag.String("listen", ":8080", "local listen address")
+)
+
 func main() {
-	lsn := tun.NewAddr2("127.0.0.1", 8080)
+	lsn := tun.NewAddr1(*listenAddr)
 
 	fmt.Printf("web listening on '%#v'\n", lsn)
 
@@ -28,7 +33,7 @@ func main() {
 	}
 	web.Start()
 
-	fmt.Printf("web listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
+	fmt.Printf("web serving 'ping' with 'pong'; listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
 
 	select {}
 }

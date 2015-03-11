@@ -26,7 +26,7 @@ type WebServer struct {
 }
 
 type WebServerConfig struct {
-	Listen addr
+	Listen Addr
 }
 
 func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Duration) (*WebServer, error) {

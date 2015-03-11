@@ -6,27 +6,27 @@ import (
 	"strconv"
 )
 
-type addr struct {
+type Addr struct {
 	Ip     string
 	Port   int
 	IpPort string // Ip:Port
 }
 
-func NewAddr2(ip string, port int) addr {
-	return addr{
+func NewAddr2(ip string, port int) Addr {
+	return Addr{
 		Ip:     ip,
 		Port:   port,
 		IpPort: fmt.Sprintf("%s:%d", ip, port),
 	}
 }
 
-func (a *addr) SetIpPort() {
+func (a *Addr) SetIpPort() {
 	a.IpPort = fmt.Sprintf("%s:%d", a.Ip, a.Port)
 }
 
 var ipColonPortRegex = regexp.MustCompile(`^([^:]*)\:(.*)$`)
 
-func NewAddr1(ipport string) addr {
+func NewAddr1(ipport string) Addr {
 	var ip string
 	var port int
 	var err error
@@ -42,7 +42,7 @@ func NewAddr1(ipport string) addr {
 
 	//fmt.Printf("ip = '%s', port = %d\n", ip, port)
 
-	return addr{
+	return Addr{
 		Ip:     ip,
 		Port:   port,
 		IpPort: ipport,
