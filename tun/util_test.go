@@ -145,11 +145,15 @@ func (cli *BcastClient) Start() {
 
 		_, err = conn.Write([]byte("hello"))
 		panicOn(err)
+		po("\n after cli.Start() got to Write to conn.\n")
 
 		buf := make([]byte, 100)
-		_, err = conn.Read(buf)
+		n, err := conn.Read(buf)
+
+		po("\n after cli.Start() got to Read from conn. n = %d bytes\n", n)
+
 		panicOn(err)
-		cli.lastMsg = string(buf)
+		cli.lastMsg = string(buf[:n])
 		close(cli.MsgRecvd)
 		//cli.MsgRecvd = make(chan bool)
 
@@ -184,6 +188,8 @@ type BcastServer struct {
 
 	lsn     net.Listener
 	waiting []net.Conn
+
+	FirstClient chan bool
 }
 
 func NewBcastServer(a Addr) *BcastServer {
@@ -196,10 +202,11 @@ func NewBcastServer(a Addr) *BcastServer {
 	a.SetIpPort()
 
 	r := &BcastServer{
-		Listen:  a,
-		Ready:   make(chan bool),
-		ReqStop: make(chan bool),
-		Done:    make(chan bool),
+		Listen:      a,
+		Ready:       make(chan bool),
+		ReqStop:     make(chan bool),
+		Done:        make(chan bool),
+		FirstClient: make(chan bool),
 	}
 	return r
 }
@@ -246,6 +253,13 @@ func (r *BcastServer) Start() error {
 			}
 
 			r.waiting = append(r.waiting, conn)
+
+			// close FirstClient only once
+			select {
+			case <-r.FirstClient:
+			default:
+				close(r.FirstClient)
+			}
 
 			po("server BcastServer::Start(): accepted '%v' -> '%v' local. len(r.waiting) = %d now.\n", conn.RemoteAddr(), conn.LocalAddr(), len(r.waiting))
 
@@ -306,6 +320,8 @@ func TestTcpClientAndServerCanTalkDirectly012(t *testing.T) {
 	cli := NewBcastClient(Addr{Port: srv.Listen.Port})
 	cli.Start()
 
+	// let the client hook up to the server first, or else we'll race.
+	<-srv.FirstClient
 	po("\n done with cli.Start()\n")
 
 	cv.Convey("The broadcast client and server should be able to speak directly without proxies, sending and receiving", t, func() {
@@ -327,9 +343,12 @@ func (cli *BcastClient) Expect(msg string) bool {
 	sleep := time.Millisecond * 40
 	found := false
 	for i := 0; i < tries; i++ {
-		if cli.LastMsgReceived() == msg {
+		last := cli.LastMsgReceived()
+		if last == msg {
 			found = true
 			break
+		} else {
+			po("\n expect rejecting msg: '%s'\n", last)
 		}
 		time.Sleep(sleep)
 	}
