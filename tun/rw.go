@@ -46,6 +46,10 @@ func (s *NetConnReader) Start() {
 	// write to dnReadToUpWrite channel
 	go func() {
 		for {
+			if s.IsStopRequested() {
+				close(s.Done)
+				return
+			}
 
 			err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
 			panicOn(err)
@@ -61,7 +65,12 @@ func (s *NetConnReader) Start() {
 				panic(err)
 			}
 
-			s.dnReadToUpWrite <- buf[:n64]
+			select {
+			case s.dnReadToUpWrite <- buf[:n64]:
+			case <-s.ReqStop:
+				close(s.Done)
+				return
+			}
 
 		}
 	}()
