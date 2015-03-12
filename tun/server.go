@@ -60,14 +60,29 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 	}
 }
 
+// only callable from same goroutine as Start(); and
+// only callled by Start() on shutting down.
+func (s *ReverseProxy) finish(tunnelMap *map[string]*tunnel) {
+	s.web.Stop()
+	po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
+
+	// close all our downstream connections
+	for _, t := range *tunnelMap {
+		t.rw.Close()
+	}
+
+	close(s.Done)
+}
+
 func (s *ReverseProxy) Start() {
 
 	s.startExternalHttpListener()
 
 	// start processing loop
 	go func() {
-		po("ReverseProxy::Start(), aka tunnelMuxer started\n")
 		tunnelMap := make(map[string]*tunnel)
+		defer func() { s.finish(&tunnelMap) }()
+		po("ReverseProxy::Start(), aka tunnelMuxer started\n")
 		for {
 			select {
 			case pp := <-s.packetQueue:
@@ -89,9 +104,7 @@ func (s *ReverseProxy) Start() {
 				//po("tunnelMuxer: after adding key '%x'..., tunnelMap is now: '%#v'\n", p.key[:5], tunnelMap)
 
 			case <-s.ReqStop:
-				s.web.Stop()
-				po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
-				close(s.Done)
+				// deferred finish() takes care of the rest
 				return
 			}
 		}
@@ -185,6 +198,7 @@ type tunnel struct {
 	key       string
 	dnConn    net.Conn // downstream, e.g. to tcp speaking sshd server
 	recvCount int
+	rw        *RW // manage the goroutines that read and write dnConn
 }
 
 type tunnelPacket struct {
@@ -205,7 +219,6 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 
 	po("ReverseProxy::NewTunnel() top. key = '%x'...\n", key[:5])
 	t = &tunnel{
-		//C:         make(chan tunnelPacket),
 		key:       string(key),
 		recvCount: 0,
 	}
@@ -226,8 +239,8 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 		panicOn(err)
 	}
 
-	err = t.dnConn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
-	panicOn(err)
+	t.rw = NewRW(t.dnConn, 0)
+	t.rw.Start()
 
 	po("ReverseProxy::NewTunnel: ResponseWriter directed to '%s'\n", destAddr)
 

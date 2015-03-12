@@ -14,9 +14,6 @@ func TestRW017(t *testing.T) {
 
 	cv.Convey("When we start a RW that turns a net.Conn connection into a pair of channels, then reads and writes to/from the netConn should succeed and notice if the connection is dropped.", t, func() {
 
-		upReadToDnWrite := make(chan []byte)
-		dnReadToUpWrite := make(chan []byte)
-
 		echo := NewEchoServer(Addr{Ip: "127.0.0.1"})
 		echo.Start()
 		defer echo.Stop()
@@ -27,12 +24,12 @@ func TestRW017(t *testing.T) {
 		}
 
 		// use a small buffer to simulate needing multiple reads
-		rw := NewRW(conn, upReadToDnWrite, dnReadToUpWrite, 2)
+		rw := NewRW(conn, 2)
 		rw.Start()
 		defer rw.Stop()
 
 		m1 := []byte("yippeeee! yes!")
-		upReadToDnWrite <- m1
+		rw.SendToDownCh() <- m1
 
 		// accumulate reads into here
 		circ := rbuf.NewFixedSizeRingBuf(200)
@@ -40,11 +37,11 @@ func TestRW017(t *testing.T) {
 	for10msec:
 		for {
 			select {
-			case m2 := <-dnReadToUpWrite:
+			case m2 := <-rw.RecvFromDownCh(): //dnReadToUpWrite:
 				circ.Write(m2)
 
 				// 100 msec might not be long enough for all test circumstances.
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(1000 * time.Millisecond):
 				break for10msec
 			}
 		}
@@ -62,16 +59,16 @@ func TestRW017(t *testing.T) {
 		circ.Reset()
 
 		a1 := "more 0123"
-		upReadToDnWrite <- []byte(a1)
+		rw.SendToDownCh() <- []byte(a1)
 
 	forb:
 		for {
 			select {
-			case b := <-dnReadToUpWrite:
+			case b := <-rw.RecvFromDownCh():
 				circ.Write(b)
 
 				// 100 msec might not be long enough for all test circumstances.
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(1000 * time.Millisecond):
 				break forb
 			}
 		}
