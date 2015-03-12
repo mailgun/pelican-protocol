@@ -178,13 +178,12 @@ const (
 // connections on the client side to the socks proxy. The key
 // distinguishes them.
 type tunnel struct {
-	C chan tunnelPacket
 
 	// server issues a unique key for the connection, which allows multiplexing
 	// of multiple client connections from this one ip if need be.
 	// The ssh integrity checks inside the tunnel prevent malicious tampering.
 	key       string
-	conn      net.Conn
+	dnConn    net.Conn // downstream, e.g. to tcp speaking sshd server
 	recvCount int
 }
 
@@ -206,7 +205,7 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 
 	po("ReverseProxy::NewTunnel() top. key = '%x'...\n", key[:5])
 	t = &tunnel{
-		C:         make(chan tunnelPacket),
+		//C:         make(chan tunnelPacket),
 		key:       string(key),
 		recvCount: 0,
 	}
@@ -216,7 +215,7 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 		KeepAlive: 30 * time.Second,
 	}
 
-	t.conn, err = dialer.Dial("tcp", destAddr)
+	t.dnConn, err = dialer.Dial("tcp", destAddr)
 	switch err.(type) {
 	case *net.OpError:
 		if strings.HasSuffix(err.Error(), "connection refused") {
@@ -227,7 +226,7 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 		panicOn(err)
 	}
 
-	err = t.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
+	err = t.dnConn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)
 
 	po("ReverseProxy::NewTunnel: ResponseWriter directed to '%s'\n", destAddr)
@@ -273,11 +272,11 @@ func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body
 }
 
 // receiveOnePacket() closes pack.done after:
-//   writing pack.body to t.conn;
-//   reading from t.conn some bytes if available;
+//   writing pack.body to t.dnConn;
+//   reading from t.dnConn some bytes if available;
 //   and writing those bytes to pack.resp
 //
-//  t.conn is the downstream ultimate webserver
+//  t.dnConn is the downstream ultimate webserver
 //  destination.
 //
 func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
@@ -286,7 +285,7 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 
 	po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
 	// read from the request body and write to the ResponseWriter
-	n, err := t.conn.Write(pack.body)
+	n, err := t.dnConn.Write(pack.body)
 	if n != len(pack.body) {
 		log.Printf("tunnel::handle(pack): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pack.body), err)
 	} else {
@@ -294,25 +293,25 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	}
 	// done in packetHandler now: pack.request.Body.Close()
 	if err == io.EOF {
-		t.conn.Close() // let the server shutdown sooner rather than holding open the connection.
-		t.conn = nil
+		t.dnConn.Close() // let the server shutdown sooner rather than holding open the connection.
+		t.dnConn = nil
 		log.Printf("tunnel::handle(pack): EOF for key '%x'", t.key)
 		return
 	}
-	// read out of the buffer and write it to conn
+	// read out of the buffer and write it to dnConn
 	pack.resp.Header().Set("Content-type", "application/octet-stream")
-	// temp for debug: n64, err := io.Copy(pack.resp, t.conn)
+	// temp for debug: n64, err := io.Copy(pack.resp, t.dnConn)
 
 	b500 := make([]byte, 1<<17) // 128KB
 
-	err = t.conn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
+	err = t.dnConn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
 	panicOn(err)
 
-	n64, err := t.conn.Read(b500)
+	n64, err := t.dnConn.Read(b500)
 	if err != nil {
 		// i/o timeout expected
 	}
-	po("\n\n server got reply from t.conn of len %d: '%s'\n", n64, string(b500[:n64]))
+	po("\n\n server got reply from t.dnConn of len %d: '%s'\n", n64, string(b500[:n64]))
 	_, err = pack.resp.Write(b500[:n64])
 	if err != nil {
 		panic(err)
@@ -324,7 +323,7 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 	}
 
 	// don't panicOn(err)
-	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.conn moved %d bytes.\n", n64)
+	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.dnConn moved %d bytes.\n", n64)
 	close(pack.done)
 	po("tunnel::handle(pack) done.\n")
 }

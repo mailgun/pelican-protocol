@@ -231,10 +231,17 @@ func (r *BcastServer) Start() error {
 			po("server BcastServer::Start(): accepted '%v' -> '%v' local. len(r.waiting) = %d now.\n", conn.RemoteAddr(), conn.LocalAddr(), len(r.waiting))
 
 			// read from the connections to service clients
-			go func(c net.Conn) {
+			go func(netconn net.Conn) {
 				buf := make([]byte, 100)
 				for {
-					n, _ := c.Read(buf)
+					if r.IsStopRequested() {
+						return
+					}
+
+					err = netconn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+					panicOn(err)
+
+					n, _ := netconn.Read(buf)
 					po("reader service routine read buf '%s'\n", string(buf[:n]))
 				}
 			}(conn)
