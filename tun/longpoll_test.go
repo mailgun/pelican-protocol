@@ -19,7 +19,7 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 	cv.Convey("Given a ForwardProxy and a ReverseProxy communicating over http, in order to acheive low-latency sends from server to client, long-polling with two sockets (one send and one receive) should be used. So a server that has something to send (e.g. broadcast here) should be able to send back to the client immediately.", t, func() {
 
 		msg := "BREAKING NEWS"
-		bcast.Broadcast(msg)
+		bcast.Bcast(msg)
 		cv.So(cli.LastMsgReceived(), cv.ShouldEqual, msg)
 	})
 

@@ -5,7 +5,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"testing"
 	"time"
+
+	cv "github.com/glycerine/goconvey/convey"
 )
 
 // test utilities
@@ -84,7 +87,7 @@ func StartTestSystemWithBcast() (*BcastClient, *BcastServer, *ReverseProxy, *Pel
 	}
 
 	// start broadcast client (to test receipt of long-polled data from server)
-	cli := NewBroadcastClient(Addr{Port: srv.Listen.Port})
+	cli := NewBcastClient(Addr{Port: fwd.Cfg.Listen.Port})
 	cli.Start()
 
 	return cli, srv, rev, fwd, nil
@@ -101,7 +104,7 @@ type BcastClient struct {
 	lastMsg  string
 }
 
-func NewBroadcastClient(dest Addr) *BcastClient {
+func NewBcastClient(dest Addr) *BcastClient {
 
 	if dest.Port == 0 {
 		panic("client's dest Addr setting must specify port to contact")
@@ -126,25 +129,33 @@ func (cli *BcastClient) LastMsgReceived() string {
 	return cli.lastMsg
 }
 
+func (cli *BcastClient) WaitForMsg() string {
+	<-cli.MsgRecvd
+	return cli.lastMsg
+}
+
 func (cli *BcastClient) Start() {
 
-	conn, err := net.Dial("tcp", cli.Dest.IpPort)
-	if err != nil {
-		panic(err)
-	}
+	go func() {
+		close(cli.Ready)
+		conn, err := net.Dial("tcp", cli.Dest.IpPort)
+		if err != nil {
+			panic(err)
+		}
 
-	_, err = conn.Write([]byte("hello"))
-	panicOn(err)
+		_, err = conn.Write([]byte("hello"))
+		panicOn(err)
 
-	buf := make([]byte, 100)
-	_, err = conn.Read(buf)
-	panicOn(err)
-	cli.lastMsg = string(buf)
-	close(cli.MsgRecvd)
-	cli.MsgRecvd = make(chan bool)
+		buf := make([]byte, 100)
+		_, err = conn.Read(buf)
+		panicOn(err)
+		cli.lastMsg = string(buf)
+		close(cli.MsgRecvd)
+		//cli.MsgRecvd = make(chan bool)
 
-	conn.Close()
-
+		conn.Close()
+		close(cli.Done)
+	}()
 }
 
 func (r *BcastClient) IsStopRequested() bool {
@@ -238,13 +249,20 @@ func (r *BcastServer) Start() error {
 
 			po("server BcastServer::Start(): accepted '%v' -> '%v' local. len(r.waiting) = %d now.\n", conn.RemoteAddr(), conn.LocalAddr(), len(r.waiting))
 
+			select {
+			case <-time.After(time.Millisecond * serverReadTimeoutMsec):
+			}
+
 		}
+
 	}()
 	return nil
 }
 
-func (r *BcastServer) Broadcast(msg string) {
+func (r *BcastServer) Bcast(msg string) {
 	// tell all waiting sockets about msg
+
+	po("\n\n  BcastServer::Bcast() called with msg = '%s'\n\n", msg)
 
 	by := []byte(msg)
 	for _, conn := range r.waiting {
@@ -273,4 +291,50 @@ func (r *BcastServer) Stop() {
 	close(r.ReqStop)
 	r.lsn.Close()
 	<-r.Done
+}
+
+//////////// test our simple client and server can talk
+
+func TestTcpClientAndServerCanTalkDirectly012(t *testing.T) {
+
+	// start broadcast server
+	srv := NewBcastServer(Addr{})
+	srv.Start()
+	po("\n done with srv.Start()\n")
+
+	// start broadcast client
+	cli := NewBcastClient(Addr{Port: srv.Listen.Port})
+	cli.Start()
+
+	po("\n done with cli.Start()\n")
+
+	cv.Convey("The broadcast client and server should be able to speak directly without proxies, sending and receiving", t, func() {
+
+		msg := "BREAKING NEWS"
+		po("\n about to srv.Bcast()\n")
+		srv.Bcast(msg)
+
+		found := cli.Expect(msg)
+
+		cv.So(found, cv.ShouldEqual, true)
+	})
+
+	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
+}
+
+func (cli *BcastClient) Expect(msg string) bool {
+	tries := 40
+	sleep := time.Millisecond * 40
+	found := false
+	for i := 0; i < tries; i++ {
+		if cli.LastMsgReceived() == msg {
+			found = true
+			break
+		}
+		time.Sleep(sleep)
+	}
+	if !found {
+		panic(fmt.Errorf("could not find expected LastMsgReceived() == '%s' in %d tries of %v each", msg, tries, sleep))
+	}
+	return found
 }
