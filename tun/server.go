@@ -3,7 +3,6 @@ package pelicantun
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -196,9 +195,9 @@ type tunnel struct {
 	// of multiple client connections from this one ip if need be.
 	// The ssh integrity checks inside the tunnel prevent malicious tampering.
 	key       string
-	dnConn    net.Conn // downstream, e.g. to tcp speaking sshd server
 	recvCount int
 	rw        *RW // manage the goroutines that read and write dnConn
+	//circ      *rbuf.FixedSizeRingBuf
 }
 
 type tunnelPacket struct {
@@ -219,6 +218,7 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 
 	po("ReverseProxy::NewTunnel() top. key = '%x'...\n", key[:5])
 	t = &tunnel{
+		//circ:      rbuf.NewFixedSizeRingBuf(256 << 10),
 		key:       string(key),
 		recvCount: 0,
 	}
@@ -228,7 +228,7 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 		KeepAlive: 30 * time.Second,
 	}
 
-	t.dnConn, err = dialer.Dial("tcp", destAddr)
+	conn, err := dialer.Dial("tcp", destAddr)
 	switch err.(type) {
 	case *net.OpError:
 		if strings.HasSuffix(err.Error(), "connection refused") {
@@ -239,7 +239,8 @@ func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 		panicOn(err)
 	}
 
-	t.rw = NewRW(t.dnConn, 0)
+	// RW holds the conn, reads, writes, and closes it for us.
+	t.rw = NewRW(conn, 0)
 	t.rw.Start()
 
 	po("ReverseProxy::NewTunnel: ResponseWriter directed to '%s'\n", destAddr)
@@ -298,41 +299,69 @@ func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
 
 	po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
 	// read from the request body and write to the ResponseWriter
-	n, err := t.dnConn.Write(pack.body)
-	if n != len(pack.body) {
-		log.Printf("tunnel::handle(pack): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pack.body), err)
-	} else {
-		po("tunnel::handle(pack): wrote all %d bytes of pack.body to the final (sshd server) connection: '%s'.", len(pack.body), string(pack.body))
-	}
-	// done in packetHandler now: pack.request.Body.Close()
-	if err == io.EOF {
-		t.dnConn.Close() // let the server shutdown sooner rather than holding open the connection.
-		t.dnConn = nil
-		log.Printf("tunnel::handle(pack): EOF for key '%x'", t.key)
+
+	wait := 10 * time.Second
+	select {
+	case t.rw.SendToDownCh() <- pack.body:
+	case <-time.After(wait):
+		po("unable to send to downstream in receiveOnPacket after '%v'; aborting\n", wait)
 		return
 	}
+	/*
+		n, err := t.dnConn.Write(pack.body)
+		if n != len(pack.body) {
+			log.Printf("tunnel::handle(pack): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pack.body), err)
+		} else {
+			po("tunnel::handle(pack): wrote all %d bytes of pack.body to the final (sshd server) connection: '%s'.", len(pack.body), string(pack.body))
+		}
+		// done in packetHandler now: pack.request.Body.Close()
+		if err == io.EOF {
+			t.dnConn.Close() // let the server shutdown sooner rather than holding open the connection.
+			t.dnConn = nil
+			log.Printf("tunnel::handle(pack): EOF for key '%x'", t.key)
+			return
+		}
+	*/
+
 	// read out of the buffer and write it to dnConn
 	pack.resp.Header().Set("Content-type", "application/octet-stream")
-	// temp for debug: n64, err := io.Copy(pack.resp, t.dnConn)
 
-	b500 := make([]byte, 1<<17) // 128KB
+	/*
+		b500 := make([]byte, 1<<17) // 128KB
 
-	err = t.dnConn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
-	panicOn(err)
+		err = t.dnConn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
+		panicOn(err)
 
-	n64, err := t.dnConn.Read(b500)
-	if err != nil {
-		// i/o timeout expected
-	}
-	po("\n\n server got reply from t.dnConn of len %d: '%s'\n", n64, string(b500[:n64]))
-	_, err = pack.resp.Write(b500[:n64])
-	if err != nil {
-		panic(err)
-	}
+		n64, err := t.dnConn.Read(b500)
+		if err != nil {
+			// i/o timeout expected
+		}
+		po("\n\n server got reply from t.dnConn of len %d: '%s'\n", n64, string(b500[:n64]))
+	*/
 
-	_, err = pack.respdup.Write(b500[:n64])
-	if err != nil {
-		panic(err)
+	//circ.Reset()
+
+	// read for dur
+	dur := 10 * time.Millisecond
+	var n64 int64
+readloop:
+	for {
+		select {
+		case b500 := <-t.rw.RecvFromDownCh():
+			n64 += int64(len(b500))
+			_, err := pack.resp.Write(b500)
+			if err != nil {
+				panic(err)
+			}
+
+			_, err = pack.respdup.Write(b500)
+			if err != nil {
+				panic(err)
+			}
+
+		case <-time.After(dur):
+			break readloop
+		}
 	}
 
 	// don't panicOn(err)

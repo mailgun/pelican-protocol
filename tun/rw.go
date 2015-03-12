@@ -233,7 +233,7 @@ func (s *NetConnWriter) Start() {
 				}
 
 				if err != nil && !IsTimeout(err) {
-					s.LastErr = err
+					s.LastErr = err // okay for io.EOF; don't close the conn since reader may be using.
 					return
 				}
 			} // end try loop
