@@ -23,11 +23,12 @@ func TestRW017(t *testing.T) {
 		panic(err)
 	}
 
-	rw := NewRW(conn, upReadToDnWrite, dnReadToUpWrite)
+	// use buffer of size 3 to simulate needing multiple reads
+	rw := NewRW(conn, upReadToDnWrite, dnReadToUpWrite, 3)
 	rw.Start()
 	defer rw.Stop()
 
-	m1 := []byte("yippeeee!")
+	m1 := []byte("yippeeee! yes!")
 	upReadToDnWrite <- m1
 
 	// accumulate reads into here
@@ -53,7 +54,25 @@ for10msec:
 
 	po("m1 m2 compare looks good\n")
 
+	circ.Reset()
+
+	a1 := "more 0123"
+	upReadToDnWrite <- []byte(a1)
+
+forb:
+	for {
+		select {
+		case b := <-dnReadToUpWrite:
+			circ.Write(b)
+		case <-time.After(10 * time.Millisecond):
+			break forb
+		}
+	}
+
+	b1 := string(circ.Bytes())
+
 	cv.Convey("When we start a RW that turns a net.Conn connection into a pair of channels, then reads and writes to/from the netConn should succeed and notice if the connection is dropped.", t, func() {
-		cv.So(m1, cv.ShouldResemble, m2)
+		cv.So(s1, cv.ShouldResemble, s2)
+		cv.So(a1, cv.ShouldResemble, b1)
 	})
 }

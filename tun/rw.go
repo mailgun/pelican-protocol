@@ -28,8 +28,15 @@ type NetConnReader struct {
 	dnReadToUpWrite chan []byte // can only send []byte upstream
 }
 
-// make a new NetConnReader
-func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte) *NetConnReader {
+const NetConnReaderDefaultBufSizeBytes = 4 * 1024 // 4K
+
+// make a new NetConnReader. if bufsz is 0 then we default
+// to using a buffer of size NetConnReaderDefaultBufSizeBytes.
+func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int) *NetConnReader {
+	if bufsz <= 0 {
+		bufsz = NetConnReaderDefaultBufSizeBytes
+	}
+
 	return &NetConnReader{
 		Done:            make(chan bool),
 		ReqStop:         make(chan bool),
@@ -37,7 +44,7 @@ func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte) *NetConnRea
 		conn:            netconn,
 		dnReadToUpWrite: dnReadToUpWrite,
 		timeout:         10 * time.Millisecond,
-		bufsz:           8 * 1024,
+		bufsz:           bufsz,
 	}
 }
 
@@ -201,11 +208,11 @@ type RW struct {
 	DnReadToUpWrite chan []byte // can only send []byte to upstream
 }
 
-// make a new RW
-func NewRW(c net.Conn, upReadToDnWrite chan []byte, dnReadToUpWrite chan []byte) *RW {
+// make a new RW, passing bufsz to NewNetConnReader().
+func NewRW(c net.Conn, upReadToDnWrite chan []byte, dnReadToUpWrite chan []byte, bufsz int) *RW {
 	s := &RW{
 		conn:            c,
-		r:               NewNetConnReader(c, dnReadToUpWrite),
+		r:               NewNetConnReader(c, dnReadToUpWrite, bufsz),
 		w:               NewNetConnWriter(c, upReadToDnWrite),
 		UpReadToDnWrite: upReadToDnWrite,
 		DnReadToUpWrite: dnReadToUpWrite,
