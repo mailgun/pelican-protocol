@@ -68,17 +68,38 @@ func (cli *BcastClient) Start() {
 		po("\n after cli.Start() got to Write to conn.\n")
 
 		buf := make([]byte, 100)
-		n, err := conn.Read(buf)
 
-		po("\n after cli.Start() got to Read from conn. n = %d bytes\n", n)
+		// read loop, check for done request
+		isTimeout := false
+		for {
+			isTimeout = false
+			err = conn.SetDeadline(time.Now().Add(time.Millisecond * 100))
+			panicOn(err)
+			n, err := conn.Read(buf)
+			if err != nil {
+				if strings.HasSuffix(err.Error(), "i/o timeout") {
+					// okay, ignore
+					isTimeout = true
+				} else {
+					panic(err)
+				}
+			}
+			if !isTimeout {
+				cli.lastMsg = string(buf[:n])
+				close(cli.MsgRecvd)
+				po("\n after cli.Start() got to Read from conn. n = %d bytes\n", n)
+			}
 
-		panicOn(err)
-		cli.lastMsg = string(buf[:n])
-		close(cli.MsgRecvd)
-		//cli.MsgRecvd = make(chan bool)
-
-		conn.Close()
-		close(cli.Done)
+			// check for stop requests
+			select {
+			case <-cli.ReqStop:
+				conn.Close()
+				close(cli.Done)
+				return
+			default:
+				// loop
+			}
+		} // end for
 	}()
 }
 
@@ -175,7 +196,7 @@ func (r *BcastServer) Start() error {
 
 		// the Accept loop
 		for {
-			po("client BcastServer::Start(): top of for{} loop.\n")
+			po("BcastServer::Start(): top of for{} loop.\n")
 			if r.IsStopRequested() {
 				return
 			}
@@ -209,9 +230,18 @@ func (r *BcastServer) Start() error {
 
 			po("server BcastServer::Start(): accepted '%v' -> '%v' local. len(r.waiting) = %d now.\n", conn.RemoteAddr(), conn.LocalAddr(), len(r.waiting))
 
-			select {
-			case <-time.After(time.Millisecond * serverReadTimeoutMsec):
-			}
+			// read from the connections to service clients
+			go func(c net.Conn) {
+				buf := make([]byte, 100)
+				for {
+					n, _ := c.Read(buf)
+					po("reader service routine read buf '%s'\n", string(buf[:n]))
+				}
+			}(conn)
+
+			//			select {
+			//			case <-time.After(time.Millisecond * serverReadTimeoutMsec):
+			//			}
 
 		}
 

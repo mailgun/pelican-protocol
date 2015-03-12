@@ -72,7 +72,7 @@ func (s *ReverseProxy) Start() {
 			select {
 			case pp := <-s.packetQueue:
 
-				po("tunnelMuxer: from pp <- packetQueue, we read key '%x'\n", pp.key)
+				//po("tunnelMuxer: from pp <- packetQueue, we read key '%x'...\n", pp.key)
 				// find tunnel
 				tunnel, ok := tunnelMap[string(pp.key)]
 				if !ok {
@@ -80,13 +80,13 @@ func (s *ReverseProxy) Start() {
 					continue
 				}
 				// handle
-				po("tunnelMuxer found tunnel for key '%x'\n", pp.key)
+				//po("tunnelMuxer found tunnel for key '%x'\n", pp.key)
 				tunnel.receiveOnePacket(pp)
 
 			case p := <-s.createQueue:
 				po("tunnelMuxer: got p=%p on <-createQueue\n", p)
 				tunnelMap[p.key] = p
-				po("tunnelMuxer: after adding key '%x', tunnelMap is now: '%#v'\n", p.key, tunnelMap)
+				//po("tunnelMuxer: after adding key '%x'..., tunnelMap is now: '%#v'\n", p.key[:5], tunnelMap)
 
 			case <-s.ReqStop:
 				s.web.Stop()
@@ -150,9 +150,8 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		}
 		key := tunnel.key
 
-		po("Server::createHandler, about to write key '%s'.\n", key)
 		respW.Write([]byte(key))
-		po("Server::createHandler done for key '%x'.\n", key)
+		po("Server::createHandler done for key '%x'...\n", key[:5])
 	}
 
 	mux := http.NewServeMux()
@@ -205,7 +204,7 @@ var po = VPrintf
 func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
 	key := GenPelicanKey()
 
-	po("ReverseProxy::NewTunnel() top. key = '%x'\n", key)
+	po("ReverseProxy::NewTunnel() top. key = '%x'...\n", key[:5])
 	t = &tunnel{
 		C:         make(chan tunnelPacket),
 		key:       string(key),

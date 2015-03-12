@@ -402,7 +402,7 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 		return "", fmt.Errorf("ConnectDownstreamHttp: error during Post to '%s': '%s'; body: '%s'", url, resp.Status, string(key))
 	}
 
-	log.Printf("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x' (string: '%s') of len %d\n\n", key, string(key), len(key))
+	log.Printf("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x'... (string: '%s'...) of len %d\n\n", key[:5], string(key[:5]), len(key))
 
 	return string(key), nil
 }
@@ -552,7 +552,7 @@ func (f *PelicanSocksProxy) Start() error {
 func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer) error {
 	// write buf to new http request, starting with key
 
-	po("\n\n debug: sendThenRecv called with dest: '%#v', key: '%s', and buf: '%s'\n", dest, key, string(buf.Bytes()))
+	//po("\n\n debug: sendThenRecv called with dest: '%#v', key: '%s', and buf: '%s'\n", dest, key, string(buf.Bytes()))
 
 	if dest.IpPort == "" {
 		return fmt.Errorf("dest.IpPort was empty the string")
