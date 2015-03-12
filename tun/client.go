@@ -292,6 +292,7 @@ type TcpUpstreamReceiver struct {
 }
 
 func NewTcpUpstreamReceiver(a Addr) *TcpUpstreamReceiver {
+	a.SetIpPort()
 	r := &TcpUpstreamReceiver{
 		Listen:              a,
 		UpstreamTcpConnChan: make(chan net.Conn),
@@ -299,7 +300,6 @@ func NewTcpUpstreamReceiver(a Addr) *TcpUpstreamReceiver {
 		ReqStop:             make(chan bool),
 		Done:                make(chan bool),
 	}
-	a.SetIpPort()
 	return r
 }
 
