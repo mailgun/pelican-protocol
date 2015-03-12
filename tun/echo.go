@@ -60,7 +60,7 @@ func (r *EchoServer) Start() error {
 
 		// the Accept loop
 		for {
-			po("EchoServer::Start(): top of for{} loop.\n")
+			//po("EchoServer::Start(): top of for{} loop.\n")
 			if r.IsStopRequested() {
 				return
 			}
@@ -90,7 +90,7 @@ func (r *EchoServer) Start() error {
 				close(r.FirstClient)
 			}
 
-			po("server EchoServer::Start(): accepted '%v' -> '%v' local.\n", conn.RemoteAddr(), conn.LocalAddr())
+			//po("server EchoServer::Start(): accepted '%v' -> '%v' local.\n", conn.RemoteAddr(), conn.LocalAddr())
 
 			// read from the connections to service clients
 
@@ -105,19 +105,22 @@ func (r *EchoServer) Start() error {
 					panicOn(err)
 
 					n, _ := netconn.Read(buf)
-					po("echo service routine read buf '%s'\n", string(buf[:n]))
+					//po("echo service routine read buf '%s'\n", string(buf[:n]))
 
 					err = netconn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 					panicOn(err)
 
-					nw, _ := netconn.Write(buf[:n])
-					po("echo service routine wrote buf '%s'\n", string(buf[:nw]))
+					netconn.Write(buf[:n])
+					//nw, _ := netconn.Write(buf[:n])
+					//po("echo service routine wrote buf '%s'\n", string(buf[:nw]))
 				}
 			}(conn)
 
 		}
 
 	}()
+	<-r.Ready
+	WaitUntilServerUp(r.Listen.IpPort)
 	return nil
 }
 

@@ -22,9 +22,13 @@ type NetConnReader struct {
 	Done    chan bool
 	Ready   chan bool
 
-	bufsz           int
-	conn            net.Conn
-	timeout         time.Duration
+	bufsz   int
+	conn    net.Conn
+	timeout time.Duration
+
+	// clients of NewConnReader should get access to the channel
+	// via calling RecvFromDownCh() so we can nil the channel when
+	// the downstream server is unavailable.
 	dnReadToUpWrite chan []byte // can only send []byte upstream
 }
 
@@ -48,13 +52,29 @@ func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int) 
 	}
 }
 
+func (s *NetConnReader) RecvFromDownCh() chan []byte {
+	select {
+	case <-s.ReqStop:
+		return nil
+	case <-s.Done:
+		return nil
+	default:
+		return s.dnReadToUpWrite
+	}
+}
+
+func (s *NetConnReader) finish() {
+	close(s.dnReadToUpWrite)
+	close(s.Done)
+}
+
 func (s *NetConnReader) Start() {
 	// read from conn and
 	// write to dnReadToUpWrite channel
 	go func() {
 		for {
 			if s.IsStopRequested() {
-				close(s.Done)
+				s.finish()
 				return
 			}
 
@@ -75,7 +95,7 @@ func (s *NetConnReader) Start() {
 			select {
 			case s.dnReadToUpWrite <- buf[:n64]:
 			case <-s.ReqStop:
-				close(s.Done)
+				s.finish()
 				return
 			}
 
@@ -100,6 +120,7 @@ type NetConnWriter struct {
 	ReqStop chan bool
 	Done    chan bool
 	Ready   chan bool
+	LastErr error
 
 	conn            net.Conn
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
@@ -118,10 +139,31 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte) *NetConnWri
 	}
 }
 
+func (s *NetConnWriter) SendToDownCh() chan []byte {
+	select {
+	case <-s.ReqStop:
+		return nil
+	case <-s.Done:
+		return nil
+	default:
+		return s.upReadToDnWrite
+	}
+}
+
+func (s *NetConnWriter) finish() {
+	close(s.upReadToDnWrite)
+	close(s.Done)
+}
+
 func (s *NetConnWriter) Start() {
 
 	// read from upReadToDnWrite and write to conn
 	go func() {
+		defer func() {
+			// proper cleanup on all exit paths
+			s.finish()
+		}()
+
 		var err error
 		var n int
 		var wroteOk bool
@@ -132,7 +174,6 @@ func (s *NetConnWriter) Start() {
 			select {
 			case buf = <-s.upReadToDnWrite:
 			case <-s.ReqStop:
-				close(s.Done)
 				return
 			}
 
@@ -160,7 +201,7 @@ func (s *NetConnWriter) Start() {
 				if IsTimeout(err) {
 					buf = buf[n:]
 					if len(buf) == 0 {
-						// wierd that we still timed out...? go with it.
+						// weird that we still timed out...? go with it.
 						wroteOk = true
 						break tryloop
 					}
@@ -168,7 +209,6 @@ func (s *NetConnWriter) Start() {
 
 					// check for request to shutdown
 					if s.IsStopRequested() {
-						close(s.Done)
 						return
 					}
 					continue
@@ -176,6 +216,8 @@ func (s *NetConnWriter) Start() {
 
 				if err != nil && !IsTimeout(err) {
 					panic(err)
+					s.LastErr = err
+					return
 				}
 			} // end try loop
 
@@ -235,6 +277,18 @@ func (s *RW) Stop() {
 	s.w.Stop()
 }
 
+func (s *RW) SendToDownCh() chan []byte {
+	return s.w.SendToDownCh()
+}
+
+func (s *RW) RecvFromDownCh() chan []byte {
+	return s.r.RecvFromDownCh()
+}
+
+func (s *RW) IsDone() bool {
+	return s.r.IsDone() && s.w.IsDone()
+}
+
 func (r *NetConnReader) IsStopRequested() bool {
 	select {
 	case <-r.ReqStop:
@@ -247,6 +301,24 @@ func (r *NetConnReader) IsStopRequested() bool {
 func (r *NetConnWriter) IsStopRequested() bool {
 	select {
 	case <-r.ReqStop:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *NetConnReader) IsDone() bool {
+	select {
+	case <-r.Done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *NetConnWriter) IsDone() bool {
+	select {
+	case <-r.Done:
 		return true
 	default:
 		return false
