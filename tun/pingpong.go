@@ -1,17 +1,24 @@
 package pelicantun
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
 )
 
+var globalHome *Home
+
 func example_main() {
 	c := NewChaser()
 	c.Start()
+	globalHome = c.home
 
-	for i := 0; i < 100; i++ {
+	for i := 1; i < 100; i++ {
 		c.incoming <- i
+		rsleep()
+		rsleep()
+		rsleep()
 		rsleep()
 	}
 
@@ -75,31 +82,47 @@ func (s *Chaser) Stop() {
 	close(s.Done)
 }
 
-// alpha and beta are a pair of room-mates
+// Long-polling implementation from the client's
+// viewpoint.
+
+// Alpha and beta are a pair of room-mates
 // who hate to be home together.
+//
 // If alpha arrives home and beta is present,
 // alpha kicks out beta and beta goes on a data
-// retrieval mission. When beta gets back if
-// alpha is home, alpha is forced to go himself
-// on a data retrieval mission. If they both
-// find themselves at home at once, then the
-// tie is arbitrarily broken like this: alpha
-// goes out (to server to fetch any data server has).
+// retrieval mission.
+//
+// When beta gets back if alpha is home, alpha
+// is forced to go himself
+// on a data retrieval mission.
+//
+// If they both find themselves at home at once, then the
+// tie is arbitrarily broken and alpha goes (hence
+// the name).
 //
 // In this way we implement the ping-pong of
 // long-polling. Within the constraints of only
 // having two http connections open, each party
 // can send whenever they so desire, with as low
 // latency as we can muster within the constraints
-// of only using two http connections.
+// of only using two http connections and the given
+// traffic profile of pauses on either end.
+//
+// Similar to: BOSH, Comet.
 //
 func (s *Chaser) StartAlpha() {
 	go func() {
+		defer func() { close(s.alphaDone) }()
 		var work int
+		var goNow bool
 		for {
 			work = 0
 
-			goNow := <-s.home.shouldAlphaGoNow
+			select {
+			case goNow = <-s.home.shouldAlphaGoNow:
+			case <-s.ReqStop:
+				return
+			}
 			if !goNow {
 
 				// only I am home, so wait for an event.
@@ -107,7 +130,6 @@ func (s *Chaser) StartAlpha() {
 				case work = <-s.incoming:
 				// launch with the data in work
 				case <-s.ReqStop:
-					close(s.alphaDone)
 					return
 				case <-s.home.tellAlphaToGo:
 					// we can launch without data, but
@@ -122,18 +144,18 @@ func (s *Chaser) StartAlpha() {
 					}
 				}
 			}
+			if work > 0 {
+				// quiet compiler
+			}
 
 			// send request to server
-			po("Alpha got work %d, and now is away delivering that work\n", work)
+			s.home.alphaDepartsHome <- true
 			rsleep()
-
-			po("Alpha back\n")
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
 
 			// deliver any response data to our client
-			po("Alpha back and delivering any response data to client\n")
 			rsleep()
 
 		}
@@ -144,18 +166,24 @@ func (s *Chaser) StartAlpha() {
 // connection.
 func (s *Chaser) StartBeta() {
 	go func() {
+		defer func() { close(s.betaDone) }()
 		var work int
+		var goNow bool
 		for {
 			work = 0
 
-			goNow := <-s.home.shouldBetaGoNow
+			select {
+			case goNow = <-s.home.shouldBetaGoNow:
+			case <-s.ReqStop:
+				return
+			}
+
 			if !goNow {
 
 				select {
 				case work = <-s.incoming:
 					// launch with the data in work
 				case <-s.ReqStop:
-					close(s.betaDone)
 					return
 				case <-s.home.tellBetaToGo:
 					// we can launch without data, but
@@ -170,18 +198,18 @@ func (s *Chaser) StartBeta() {
 					}
 				}
 			}
+			if work > 0 {
+				// quiet compiler
+			}
 
 			// send request to server
-
-			po("Beta got work %d, and now is away delivering that work\n", work)
+			s.home.betaDepartsHome <- true
 			rsleep()
 
-			po("Beta back.\n")
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
 
 			// deliver any response data to our client
-			po("Beta back and delivering any response data to client\n")
 			rsleep()
 		}
 	}()
@@ -208,18 +236,24 @@ type Home struct {
 	shouldAlphaGoNow chan bool
 	shouldBetaGoNow  chan bool
 
-	alphaHome bool
-	betaHome  bool
-	lastHome  who
+	alphaHome           bool
+	betaHome            bool
+	lastHome            who
+	shouldAlphaGoCached bool
+	shouldBetaGoCached  bool
 
 	ReqStop chan bool
 	Done    chan bool
+
+	IsAlphaHome chan bool
+	IsBetaHome  chan bool
 
 	tellBetaToGo  chan bool
 	tellAlphaToGo chan bool
 }
 
 func NewHome() *Home {
+
 	s := &Home{
 		alphaArrivesHome: make(chan bool),
 		betaArrivesHome:  make(chan bool),
@@ -231,11 +265,16 @@ func NewHome() *Home {
 		shouldBetaGoNow:  make(chan bool),
 		alphaHome:        true,
 		betaHome:         true,
+		IsAlphaHome:      make(chan bool),
+		IsBetaHome:       make(chan bool),
 		ReqStop:          make(chan bool),
 		Done:             make(chan bool),
 
 		tellBetaToGo:  make(chan bool),
 		tellAlphaToGo: make(chan bool),
+
+		shouldAlphaGoCached: true,
+		shouldBetaGoCached:  false,
 	}
 	return s
 }
@@ -245,45 +284,61 @@ func (s *Home) Stop() {
 	<-s.Done
 }
 
+func (s *Home) String() string {
+	return fmt.Sprintf("home:{alphaHome: %v, betaHome: %v}", s.alphaHome, s.betaHome)
+}
+
 func (s *Home) Start() {
 	go func() {
 		for {
 			select {
+
+			case s.IsAlphaHome <- s.alphaHome:
+			case s.IsBetaHome <- s.betaHome:
+
 			case <-s.alphaArrivesHome:
 				s.alphaHome = true
+
+				VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
+
 				s.lastHome = Alpha
 				if s.betaHome {
 					select {
 					case s.tellBetaToGo <- true:
-						s.betaHome = false
 					default:
 					}
 				}
+				s.update()
+				VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
 				s.betaHome = true
+				VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
+
 				s.lastHome = Beta
 				if s.alphaHome {
 					select {
 					case s.tellAlphaToGo <- true:
-						s.alphaHome = false
 					default:
 					}
 				}
+				s.update()
+				VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.alphaDepartsHome:
 				s.alphaHome = false
+				s.update()
+				VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
+
 			case <-s.betaDepartsHome:
 				s.betaHome = false
+				s.update()
+				VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
 
-			case s.shouldAlphaGoNow <- s.shouldAlphaGo():
-				if s.shouldAlphaGo() {
-					s.alphaHome = false
-				}
-			case s.shouldBetaGoNow <- s.shouldBetaGo():
-				if s.shouldBetaGo() {
-					s.betaHome = false
-				}
+			case s.shouldAlphaGoNow <- s.shouldAlphaGoCached:
+
+			case s.shouldBetaGoNow <- s.shouldBetaGoCached:
+
 			case <-s.ReqStop:
 				close(s.Done)
 				return
@@ -292,24 +347,19 @@ func (s *Home) Start() {
 	}()
 }
 
-// PRE: assumes alpha is home
-func (s *Home) shouldAlphaGo() bool {
+func (s *Home) shouldAlphaGo() (res bool) {
 	if s.numHome() == 2 {
 		return true
 	}
 	return false
 }
 
-// PRE: assumes beta is home
-func (s *Home) shouldBetaGo() bool {
-	if s.numHome() == 2 {
-		// in case of tie, arbitrarily alpha goes first.
-		return false
-	}
-	return true
+func (s *Home) shouldBetaGo() (res bool) {
+	// in case of tie, arbitrarily alpha goes first.
+	return false
 }
 
-func (s *Home) numHome() int {
+func (s *Home) numHome() (res int) {
 	if s.alphaHome && s.betaHome {
 		return 2
 	}
@@ -317,4 +367,10 @@ func (s *Home) numHome() int {
 		return 1
 	}
 	return 0
+}
+
+func (s *Home) update() {
+	s.shouldAlphaGoCached = s.shouldAlphaGo()
+	s.shouldBetaGoCached = s.shouldBetaGo()
+
 }
