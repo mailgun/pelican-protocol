@@ -16,8 +16,8 @@ func main() {
 
 	flag.Parse()
 
-	flsn := tun.NewAddr1(*listenAddr)
-	fdest := tun.NewAddr1(*destAddr)
+	flsn := tun.NewAddr1panicOnError(*listenAddr)
+	fdest := tun.NewAddr1panicOnError(*destAddr)
 
 	fmt.Printf("fwd starting: '%#v' -> '%#v'\n", flsn, fdest)
 

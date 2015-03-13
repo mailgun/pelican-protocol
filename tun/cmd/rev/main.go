@@ -16,8 +16,8 @@ func main() {
 
 	flag.Parse()
 
-	rlsn := tun.NewAddr1(*listenAddr)
-	rdest := tun.NewAddr1(*destAddr)
+	rlsn := tun.NewAddr1panicOnError(*listenAddr)
+	rdest := tun.NewAddr1panicOnError(*destAddr)
 
 	fmt.Printf("rev starting: '%#v' -> '%#v'\n", rlsn, rdest)
 

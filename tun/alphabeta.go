@@ -44,6 +44,34 @@ func NewChaser() *Chaser {
 	return s
 }
 
+// Long-polling implementation from the client's
+// viewpoint.
+//
+// Alpha and beta are a pair of room-mates
+// who hate to be home together.
+//
+// If alpha arrives home and beta is present,
+// alpha kicks out beta and beta goes on a data
+// retrieval mission.
+//
+// When beta gets back if alpha is home, alpha
+// is forced to go himself
+// on a data retrieval mission.
+//
+// If they both find themselves at home at once, then the
+// tie is arbitrarily broken and alpha goes (hence
+// the name).
+//
+// In this way we implement the ping-pong of
+// long-polling. Within the constraints of only
+// having two http connections open, each party
+// can send whenever they so desire, with as low
+// latency as we can muster within the constraints
+// of only using two http connections and the given
+// traffic profile of pauses on either end.
+//
+// Similar to: BOSH, Comet.
+//
 type Chaser struct {
 	ReqStop chan bool
 	Done    chan bool
@@ -80,34 +108,6 @@ func (s *Chaser) Stop() {
 	close(s.Done)
 }
 
-// Long-polling implementation from the client's
-// viewpoint.
-
-// Alpha and beta are a pair of room-mates
-// who hate to be home together.
-//
-// If alpha arrives home and beta is present,
-// alpha kicks out beta and beta goes on a data
-// retrieval mission.
-//
-// When beta gets back if alpha is home, alpha
-// is forced to go himself
-// on a data retrieval mission.
-//
-// If they both find themselves at home at once, then the
-// tie is arbitrarily broken and alpha goes (hence
-// the name).
-//
-// In this way we implement the ping-pong of
-// long-polling. Within the constraints of only
-// having two http connections open, each party
-// can send whenever they so desire, with as low
-// latency as we can muster within the constraints
-// of only using two http connections and the given
-// traffic profile of pauses on either end.
-//
-// Similar to: BOSH, Comet.
-//
 func (s *Chaser) StartAlpha() {
 	go func() {
 		defer func() { close(s.alphaDone) }()

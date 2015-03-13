@@ -50,3 +50,11 @@ func NewAddr1(ipport string) (*Addr, error) {
 		IpPort: ipport,
 	}, nil
 }
+
+func NewAddr1panicOnError(ipport string) Addr {
+	a, err := NewAddr1(ipport)
+	if err != nil {
+		panic(err)
+	}
+	return *a
+}

@@ -15,7 +15,7 @@ var (
 
 func main() {
 	flag.Parse()
-	lsn := tun.NewAddr1(*listenAddr)
+	lsn := tun.NewAddr1panicOnError(*listenAddr)
 	lsn.SetIpPort()
 
 	fmt.Printf("web listening on '%#v'\n", lsn)

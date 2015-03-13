@@ -7,15 +7,30 @@ import (
 	"time"
 )
 
-// A LongPoller (aka tunnel) connects the http client (our pelican socks proxy)
+// A LongPoller (aka tunnel) is the server-side implementation
+// of long-polling. We connect the http client (our pelican socks proxy)
 // with the downstream target, typically an http server or sshd.
+// For the client side implementation of long polling, see the
+// file alphabeta.go and the Chaser structure and methods.
 //
-// A LongPoller represents a 1:1, one client to one server connection,
+// Inside the reverse proxy, the LongPoller represents a 1:1, one
+// client to one (downstream target) server connection,
 // if you ignore the socks-proxy and reverse-proxy in the middle.
 // A ReverseProxy can have many LongPollers, mirroring the number of
 // connections on the client side to the socks proxy. The key
 // distinguishes them. The LongerPoller is where we implement the
 // server side of the long polling.
+//
+//  http request flow (client initiating direction), http replies
+//  flow in the opposite direction of the arrows below.
+//
+//   web-browser                             web-server
+//      |                                       ^
+//      v                                       |
+// -----------------------             -------------------------
+// | pelican-socks-proxy |             | pelican-reverse-proxy |
+// |       (Chaser) ---->|------------>|---> (LongPoller)      |
+// -----------------------             -------------------------
 //
 type LongPoller struct {
 	ReqStop           chan bool
@@ -36,6 +51,12 @@ type LongPoller struct {
 
 func NewLongPoller(dest Addr) *LongPoller {
 	key := GenPelicanKey()
+	if dest.Port == 0 {
+		dest.Port = GetAvailPort()
+	}
+	if dest.Ip == "" {
+		dest.Ip = "0.0.0.0"
+	}
 	dest.SetIpPort()
 
 	s := &LongPoller{
@@ -79,7 +100,8 @@ func (s *LongPoller) finish() {
 // it's a closed loop track with only one goroutine per tunnel
 // actively holding on a long poll.
 //
-// There are only ever two client requests outstanding.
+// There are only ever two client (http) requests outstanding
+// at any given moment in time.
 //
 func (s *LongPoller) Start() error {
 
