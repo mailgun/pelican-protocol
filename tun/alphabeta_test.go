@@ -25,8 +25,29 @@ func TestPelicanSocksProxyHomePolicyMakerForLongPolling014(t *testing.T) {
 
 			s.home.Start()
 			defer s.home.Stop()
-			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
 			cv.So(<-s.home.shouldAlphaGoNow, cv.ShouldEqual, true)
+			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
+
+			s.home.alphaDepartsHome <- true
+			cv.So(<-s.home.shouldAlphaGoNow, cv.ShouldEqual, false)
+			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
+
+			s.home.alphaArrivesHome <- true
+			cv.So(<-s.home.shouldAlphaGoNow, cv.ShouldEqual, true)
+			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
+
+			s.home.betaDepartsHome <- true
+			cv.So(<-s.home.shouldAlphaGoNow, cv.ShouldEqual, false)
+			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
+
+			s.home.alphaDepartsHome <- true
+			cv.So(<-s.home.shouldAlphaGoNow, cv.ShouldEqual, false)
+			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
+
+			s.home.betaArrivesHome <- true
+			cv.So(<-s.home.shouldAlphaGoNow, cv.ShouldEqual, false)
+			cv.So(<-s.home.shouldBetaGoNow, cv.ShouldEqual, false)
+
 		})
 	})
 }
