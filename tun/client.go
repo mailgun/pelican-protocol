@@ -181,7 +181,7 @@ func (f *PelicanSocksProxy) OpenClientCount() int {
 // There is one TcpUpstreamReceiver per port that
 // the PelicanSocksProxy listens on. It blocks on the
 // socket Accept() call so that the main goroutine of
-// the PSP doesn't have to block.
+// the PelicanSocksProxy doesn't have to block.
 //
 type TcpUpstreamReceiver struct {
 	Listen              Addr

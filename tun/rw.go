@@ -14,9 +14,21 @@ func IsTimeout(err error) bool {
 	return ok && e.Timeout()
 }
 
-// NetConnReader is the downstream most reader in the reverse proxy.
-// It represents a goroutine dedicated to reading from conn and
-// writing to the DnReadToUpWrite channel.
+// NetConnReader and NetConnWriter work as a pair to
+// move data from a net.Conn into go channels. Each
+// maintains its own independent goroutine.
+//
+// NetConnReader represents a goroutine dedicated to
+// reading from conn and writing to the dnReadToUpWrite channel.
+//
+// NetConnReader is used as the downstream most reader in the
+// reverse proxy.  It is also used as the most upstream reader
+// in the forward (socks) proxy. Thus in the socks proxy,
+// the dnReadToUpWrite channel should be actually called
+// upReadToDnWrite, assuming the client is upstream and
+// the server is downstream. Hence the names are meaningful
+// only in the reverse proxy context.
+//
 type NetConnReader struct {
 	ReqStop chan bool
 	Done    chan bool
@@ -33,6 +45,10 @@ type NetConnReader struct {
 	dnReadToUpWrite chan []byte // can only send []byte upstream
 }
 
+// NetConnReaderDefaultBufSizeBytes declares the default read buffer size.
+// It may be overriden in the call to NewnetConnReader by setting the bufsz
+// parameter.
+//
 const NetConnReaderDefaultBufSizeBytes = 4 * 1024 // 4K
 
 // make a new NetConnReader. if bufsz is 0 then we default
@@ -53,6 +69,9 @@ func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int) 
 	}
 }
 
+// return the internal s.dnReadToUpWrite channel which allows
+// clients of NetConnReader to receive data from the downstream
+// server.
 func (s *NetConnReader) RecvFromDownCh() chan []byte {
 	select {
 	case <-s.ReqStop:
@@ -75,6 +94,7 @@ func (s *NetConnReader) finish() {
 	close(s.Done)
 }
 
+// Start the NetConnReader. Use Stop() to shut it down.
 func (s *NetConnReader) Start() {
 	// read from conn and
 	// write to dnReadToUpWrite channel
@@ -115,6 +135,8 @@ func (s *NetConnReader) Start() {
 	}()
 }
 
+// Stop the NetConnReader goroutine. Start() must have been called
+// first or this will hang your program.
 func (s *NetConnReader) Stop() {
 	// avoid double closing ReqStop here
 	select {
@@ -151,6 +173,7 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte) *NetConnWri
 	}
 }
 
+// returns the channel on which to send data to the downstream server.
 func (s *NetConnWriter) SendToDownCh() chan []byte {
 	select {
 	case <-s.ReqStop:
@@ -173,6 +196,7 @@ func (s *NetConnWriter) finish() {
 	close(s.Done)
 }
 
+// Start the NetConnWriter.
 func (s *NetConnWriter) Start() {
 
 	// read from upReadToDnWrite and write to conn
@@ -247,6 +271,8 @@ func (s *NetConnWriter) Start() {
 
 }
 
+// Stop the NetConnWriter. Start() must have been called first or else
+// you will hang your program waiting for s.Done to be closed.
 func (s *NetConnWriter) Stop() {
 	// avoid double closing ReqStop here
 	select {
@@ -258,7 +284,11 @@ func (s *NetConnWriter) Stop() {
 }
 
 // RW contains a reader and a writer for a specific
-// downstream connection.
+// net.Conn connection. It contains both a
+// NetConnReader and a NetConnWriter; these work as a pair to
+// move data from a net.Conn into the corresponding channels
+// upReadToDnWrite and dnReadToUpWrite.
+//
 type RW struct {
 	conn            net.Conn
 	r               *NetConnReader
@@ -283,15 +313,19 @@ func NewRW(netconn net.Conn, bufsz int) *RW {
 	return s
 }
 
+// Start the RW service.
 func (s *RW) Start() {
 	s.r.Start()
 	s.w.Start()
 }
 
+// Close is the same as Stop(). Both shutdown the running RW service.
+// Start must have been called first.
 func (s *RW) Close() {
 	s.Stop()
 }
 
+// Stop the RW service. Start must be called prior to Stop.
 func (s *RW) Stop() {
 	s.r.Stop()
 	s.w.Stop()
