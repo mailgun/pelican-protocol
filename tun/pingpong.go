@@ -3,7 +3,6 @@ package pelicantun
 import (
 	"fmt"
 	"math/rand"
-	"sync"
 	"time"
 )
 
@@ -59,7 +58,6 @@ type Chaser struct {
 	alphaDone chan bool
 	betaDone  chan bool
 
-	mutex      sync.Mutex
 	closedChan chan bool
 	home       *Home
 }
