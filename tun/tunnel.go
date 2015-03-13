@@ -111,7 +111,7 @@ func (s *LongPoller) Start() error {
 	}
 
 	// s.dial() sets s.conn on success.
-	s.rw = NewRW(s.conn, 0)
+	s.rw = NewRW(s.conn, 0, nil, nil)
 	s.rw.Start()
 
 	go func() {

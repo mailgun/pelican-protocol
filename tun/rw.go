@@ -31,15 +31,15 @@ type RW struct {
 }
 
 // make a new RW, passing bufsz to NewNetConnReader().
-func NewRW(netconn net.Conn, bufsz int) *RW {
+func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *RW {
 
 	upReadToDnWrite := make(chan []byte)
 	dnReadToUpWrite := make(chan []byte)
 
 	s := &RW{
 		conn:            netconn,
-		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, nil),
-		w:               NewNetConnWriter(netconn, upReadToDnWrite, nil),
+		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
+		w:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
 		upReadToDnWrite: upReadToDnWrite,
 		dnReadToUpWrite: dnReadToUpWrite,
 	}
@@ -135,12 +135,17 @@ const NetConnReaderDefaultBufSizeBytes = 4 * 1024 // 4K
 
 // make a new NetConnReader. if bufsz is 0 then we default
 // to using a buffer of size NetConnReaderDefaultBufSizeBytes.
-func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int, notifyDone chan *NetConnReader) *NetConnReader {
+func NewNetConnReader(
+	netconn net.Conn,
+	dnReadToUpWrite chan []byte,
+	bufsz int,
+	notifyDone chan *NetConnReader) *NetConnReader {
+
 	if bufsz <= 0 {
 		bufsz = NetConnReaderDefaultBufSizeBytes
 	}
 
-	return &NetConnReader{
+	s := &NetConnReader{
 		Done:            make(chan bool),
 		ReqStop:         make(chan bool),
 		Ready:           make(chan bool),
@@ -150,6 +155,10 @@ func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int, 
 		bufsz:           bufsz,
 		notifyDoneCh:    notifyDone,
 	}
+	if s.notifyDoneCh != nil {
+		s.reportDone = true
+	}
+	return s
 }
 
 // return the internal s.dnReadToUpWrite channel which allows
@@ -234,8 +243,16 @@ func (s *NetConnReader) Stop() {
 	<-s.Done
 }
 
+// Stops the reader and reports a pointer to itself on the notifyDoneCh
+// if supplied with NewNetConnReader.
 func (s *NetConnReader) StopAndNotify() {
 	s.reportDone = true
+	s.Stop()
+}
+
+// Stop the reader without reporting on notifyDoneCh.
+func (s *NetConnReader) StopWithoutNotify() {
+	s.reportDone = false
 	s.Stop()
 }
 
@@ -284,7 +301,7 @@ type NetConnWriter struct {
 
 // make a new NetConnWriter
 func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone chan *NetConnWriter) *NetConnWriter {
-	return &NetConnWriter{
+	s := &NetConnWriter{
 		Done:            make(chan bool),
 		ReqStop:         make(chan bool),
 		Ready:           make(chan bool),
@@ -293,6 +310,10 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone 
 		timeout:         40 * time.Millisecond,
 		notifyDoneCh:    notifyDone,
 	}
+	if s.notifyDoneCh != nil {
+		s.reportDone = true
+	}
+	return s
 }
 
 // returns the channel on which to send data to the downstream server.
@@ -427,7 +448,15 @@ func (r *NetConnWriter) IsDone() bool {
 	}
 }
 
+// Stops the writer and reports a pointer to itself on the notifyDoneCh
+// if supplied with NewNetConnWriter.
 func (s *NetConnWriter) StopAndNotify() {
 	s.reportDone = true
+	s.Stop()
+}
+
+// Stop the writer without reporting on notifyDoneCh.
+func (s *NetConnWriter) StopWithoutNotify() {
+	s.reportDone = false
 	s.Stop()
 }
