@@ -50,6 +50,7 @@ func (r *ConnReader) IsStopRequested() bool {
 	}
 }
 
+// Stop the ConnReader. Start() must have been called prior to Stop().
 func (r *ConnReader) Stop() {
 	if r.IsStopRequested() {
 		return
@@ -58,6 +59,8 @@ func (r *ConnReader) Stop() {
 	<-r.Done
 }
 
+// Stops the ConnReader without reporting anything on the
+// notifyDone channel passed to NewConnReader().
 func (r *ConnReader) StopWithoutReporting() {
 	r.noReport = true
 	r.Stop()

@@ -43,6 +43,11 @@ type NetConnReader struct {
 	// via calling RecvFromDownCh() so we can nil the channel when
 	// the downstream server is unavailable.
 	dnReadToUpWrite chan []byte // can only send []byte upstream
+
+	// report to the one user of NetConnReader that we have stopped
+	// over notifyDone, iff reportDone is true.
+	notifyDone chan *NetConnReader
+	reportDone bool
 }
 
 // NetConnReaderDefaultBufSizeBytes declares the default read buffer size.
@@ -53,7 +58,7 @@ const NetConnReaderDefaultBufSizeBytes = 4 * 1024 // 4K
 
 // make a new NetConnReader. if bufsz is 0 then we default
 // to using a buffer of size NetConnReaderDefaultBufSizeBytes.
-func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int) *NetConnReader {
+func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int, notifyDone chan *NetConnReader) *NetConnReader {
 	if bufsz <= 0 {
 		bufsz = NetConnReaderDefaultBufSizeBytes
 	}
@@ -66,6 +71,7 @@ func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int) 
 		dnReadToUpWrite: dnReadToUpWrite,
 		timeout:         10 * time.Millisecond,
 		bufsz:           bufsz,
+		notifyDone:      notifyDone,
 	}
 }
 
@@ -91,6 +97,10 @@ func (s *NetConnReader) finish() {
 	}
 	close(s.dnReadToUpWrite)
 	s.dnReadToUpWrite = nil
+
+	if s.reportDone && s.notifyDone != nil {
+		s.notifyDone <- s
+	}
 	close(s.Done)
 }
 
@@ -159,10 +169,15 @@ type NetConnWriter struct {
 	conn            net.Conn
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	timeout         time.Duration
+
+	// report to the one user of NetConnWriter that we have stopped
+	// over notifyDone, iff reportDone is true.
+	notifyDone chan *NetConnWriter
+	reportDone bool
 }
 
 // make a new NetConnWriter
-func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte) *NetConnWriter {
+func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone chan *NetConnWriter) *NetConnWriter {
 	return &NetConnWriter{
 		Done:            make(chan bool),
 		ReqStop:         make(chan bool),
@@ -170,6 +185,7 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte) *NetConnWri
 		conn:            netconn,
 		upReadToDnWrite: upReadToDnWrite,
 		timeout:         40 * time.Millisecond,
+		notifyDone:      notifyDone,
 	}
 }
 
@@ -193,6 +209,10 @@ func (s *NetConnWriter) finish() {
 	}
 	close(s.upReadToDnWrite)
 	s.upReadToDnWrite = nil
+
+	if s.reportDone && s.notifyDone != nil {
+		s.notifyDone <- s
+	}
 	close(s.Done)
 }
 
@@ -305,8 +325,8 @@ func NewRW(netconn net.Conn, bufsz int) *RW {
 
 	s := &RW{
 		conn:            netconn,
-		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz),
-		w:               NewNetConnWriter(netconn, upReadToDnWrite),
+		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, nil),
+		w:               NewNetConnWriter(netconn, upReadToDnWrite, nil),
 		upReadToDnWrite: upReadToDnWrite,
 		dnReadToUpWrite: dnReadToUpWrite,
 	}
