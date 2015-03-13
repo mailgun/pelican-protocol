@@ -20,8 +20,11 @@ func main() {
 	c.Start()
 	globalHome = c.home
 
-	for i := 0; i < 100; i++ {
+	for i := 1; i < 100; i++ {
 		c.incoming <- i
+		rsleep()
+		rsleep()
+		rsleep()
 		rsleep()
 	}
 
@@ -120,11 +123,13 @@ func (s *Chaser) StartAlpha() {
 			work = 0
 
 			goNow := <-s.home.shouldAlphaGoNow
+			fmt.Printf("alpha goNow was: %v\n", goNow)
 			if !goNow {
 
 				// only I am home, so wait for an event.
 				select {
 				case work = <-s.incoming:
+					fmt.Printf("alpha work from s.incoming is: %d\n", work)
 				// launch with the data in work
 				case <-s.ReqStop:
 					close(s.alphaDone)
@@ -136,6 +141,7 @@ func (s *Chaser) StartAlpha() {
 					// nature of select won't hurt data deliver rates.
 					select {
 					case work = <-s.incoming:
+						fmt.Printf("2nd try, work from s.incoming is: %d\n", work)
 					default:
 						// don't block on it through, go ahead with empty data
 						// if we don't have any.
@@ -168,10 +174,13 @@ func (s *Chaser) StartBeta() {
 			work = 0
 
 			goNow := <-s.home.shouldBetaGoNow
+			fmt.Printf("beta goNow was: %v\n", goNow)
+
 			if !goNow {
 
 				select {
 				case work = <-s.incoming:
+					fmt.Printf("beta work from s.incoming is: %d\n", work)
 					// launch with the data in work
 				case <-s.ReqStop:
 					close(s.betaDone)
@@ -183,6 +192,8 @@ func (s *Chaser) StartBeta() {
 					// nature of select won't hurt data deliver rates.
 					select {
 					case work = <-s.incoming:
+						fmt.Printf("2nd beta work from s.incoming is: %d\n", work)
+
 					default:
 						// don't block on it through, go ahead with empty data
 						// if we don't have any.
@@ -264,12 +275,19 @@ func (s *Home) Stop() {
 	<-s.Done
 }
 
+func (s *Home) String() string {
+	return fmt.Sprintf("home:{alphaHome: %v, betaHome: %v}", s.alphaHome, s.betaHome)
+}
+
 func (s *Home) Start() {
 	go func() {
+		var res bool
 		for {
 			select {
 			case <-s.alphaArrivesHome:
 				s.alphaHome = true
+				fmt.Printf("home received alphaArrivesHome. state of Home= '%s'\n", s)
+
 				s.lastHome = Alpha
 				if s.betaHome {
 					select {
@@ -295,12 +313,12 @@ func (s *Home) Start() {
 			case <-s.betaDepartsHome:
 				s.betaHome = false
 
-			case s.shouldAlphaGoNow <- s.shouldAlphaGo():
-				if s.shouldAlphaGo() {
+			case s.shouldAlphaGoNow <- s.shouldAlphaGo(&res):
+				if res {
 					s.alphaHome = false
 				}
-			case s.shouldBetaGoNow <- s.shouldBetaGo():
-				if s.shouldBetaGo() {
+			case s.shouldBetaGoNow <- s.shouldBetaGo(&res):
+				if res {
 					s.betaHome = false
 				}
 			case <-s.ReqStop:
@@ -312,19 +330,29 @@ func (s *Home) Start() {
 }
 
 // PRE: assumes alpha is home
-func (s *Home) shouldAlphaGo() bool {
+func (s *Home) shouldAlphaGo(p *bool) (res bool) {
+	defer func() {
+		fmt.Printf("shouldAlphaGo ran and is returning '%v'\n", res)
+	}()
 	if s.numHome() == 2 {
+		*p = true
 		return true
 	}
+	*p = false
 	return false
 }
 
 // PRE: assumes beta is home
-func (s *Home) shouldBetaGo() bool {
+func (s *Home) shouldBetaGo(p *bool) (res bool) {
+	defer func() {
+		fmt.Printf("shouldBetaGo ran and is returning '%v'\n", res)
+	}()
 	if s.numHome() == 2 {
 		// in case of tie, arbitrarily alpha goes first.
+		*p = false
 		return false
 	}
+	*p = true
 	return true
 }
 
