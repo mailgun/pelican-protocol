@@ -44,15 +44,25 @@ func NewChaser() *Chaser {
 	return s
 }
 
-// Long-polling implementation from the client's
-// viewpoint.
+// Similar in spirit to Comet, Ajax-long-polling, and BOSH,
+// Chaser is the two-socket (two http transactions open
+// at most at once) long-polling implementation from
+// the client's end. See tunnel.go and LongPoller for
+// server side.
 //
-// Alpha and beta are a pair of room-mates
-// who hate to be home together.
+// The story: alpha and beta are a pair of room-mates
+// who hate to be home together. They represent our
+// two possible http request-response sockets. The
+// job of Chaser is to figure out when to initiate
+// an http request.
 //
 // If alpha arrives home and beta is present,
 // alpha kicks out beta and beta goes on a data
-// retrieval mission.
+// retrieval mission. Even without data on the
+// request, this mission allows the server to initiate
+// data send by delaying the reply to the request
+// for some time until data becomes available to
+// send.
 //
 // When beta gets back if alpha is home, alpha
 // is forced to go himself
@@ -69,8 +79,6 @@ func NewChaser() *Chaser {
 // latency as we can muster within the constraints
 // of only using two http connections and the given
 // traffic profile of pauses on either end.
-//
-// Similar to: BOSH, Comet.
 //
 type Chaser struct {
 	ReqStop chan bool
@@ -148,13 +156,13 @@ func (s *Chaser) StartAlpha() {
 
 			// send request to server
 			s.home.alphaDepartsHome <- true
-			rsleep()
+			//rsleep()
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
 
 			// deliver any response data to our client
-			rsleep()
+			//rsleep()
 
 		}
 	}()
@@ -202,13 +210,13 @@ func (s *Chaser) StartBeta() {
 
 			// send request to server
 			s.home.betaDepartsHome <- true
-			rsleep()
+			//rsleep()
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
 
 			// deliver any response data to our client
-			rsleep()
+			//rsleep()
 		}
 	}()
 }
