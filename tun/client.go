@@ -29,8 +29,7 @@ type ConnReader struct {
 
 func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnReader, dest Addr) *ConnReader {
 	re := &ConnReader{
-		conn: conn,
-		//readCh:     make(chan []byte),
+		conn:       conn,
 		bufsz:      bufsz,
 		Ready:      make(chan bool),
 		ReqStop:    make(chan bool),
@@ -425,7 +424,8 @@ func (f *PelicanSocksProxy) Start() error {
 	// will this bother our server to get a hang up right away? no, but it means
 	// our open and close handling logic will get exercised immediately.
 	// Also, very important to do this to prevent races on startup. Test correctness
-	// will non-deterministically be impacted if we don't wait here.
+	// will non-deterministically be impacted if we don't wait with WaitUntilServerUp()
+	// here.
 	f.doneAlarm = make(chan bool)
 	WaitUntilServerUp(f.Cfg.Listen.IpPort)
 
@@ -505,7 +505,8 @@ func (f *PelicanSocksProxy) Start() error {
 				f.Up.Stop()
 
 				// the reader.Stop() will call back in on f.ConnReaderDoneCh
-				// to report finishing. Therefore we use StopWithoutReporting().
+				// to report finishing. Therefore we use StopWithoutReporting()
+				// here to avoid a deadlock situation.
 				for reader, _ := range f.readers {
 					reader.StopWithoutReporting()
 					delete(f.readers, reader)
@@ -513,30 +514,6 @@ func (f *PelicanSocksProxy) Start() error {
 
 				close(f.Done)
 				return
-
-				/*
-							case b := <-read:
-								// fill buf here
-								po("client: <-read of '%s'; hex:'%x' of length %d added to buffer\n", string(b), b, len(b))
-								buf.Write(b)
-								po("client: after write to buf of len(b)=%d, buf is now length %d\n", len(b), buf.Len())
-					case <-tick.C:
-						sendCount++
-						po("\n ====================\n client sendCount = %d\n ====================\n", sendCount)
-						var key string
-						for reader, _ := range f.readers {
-							key = reader.key
-
-							po("client: sendCount %d, got tick.C. key = '%x'. buf is now size %d\n",
-								sendCount, key, buf.Len())
-
-							err := reader.sendThenRecv(f.Cfg.Dest, key, buf)
-							if err != nil {
-								po("error during sendThenRecv: '%s'", err)
-							}
-						}
-				*/
-
 			}
 		}
 	}()
