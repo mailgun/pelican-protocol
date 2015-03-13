@@ -44,11 +44,13 @@ func NewChaser() *Chaser {
 	return s
 }
 
-// Similar in spirit to Comet, Ajax-long-polling, and BOSH,
-// Chaser is the two-socket (two http transactions open
-// at most at once) long-polling implementation from
-// the client's end. See tunnel.go and LongPoller for
-// server side.
+// Similar in spirit to Comet, Ajax-long-polling,
+// and BOSH (http://en.wikipedia.org/wiki/BOSH),
+// the following struct and methods for
+// Chaser comprises the two-socket (two http transactions open
+// at most at once) long-polling implementation for
+// the client (pelican socks proxy) end. See tunnel.go
+// and LongPoller for server side.
 //
 // The story: alpha and beta are a pair of room-mates
 // who hate to be home together. They represent our
@@ -65,8 +67,7 @@ func NewChaser() *Chaser {
 // send.
 //
 // When beta gets back if alpha is home, alpha
-// is forced to go himself
-// on a data retrieval mission.
+// is forced to go himself on a data retrieval mission.
 //
 // If they both find themselves at home at once, then the
 // tie is arbitrarily broken and alpha goes (hence
@@ -79,6 +80,12 @@ func NewChaser() *Chaser {
 // latency as we can muster within the constraints
 // of only using two http connections and the given
 // traffic profile of pauses on either end.
+//
+// The actual logic is implemented in Home, which
+// has its own goroutine. The StartAlpha() and
+// StartBeta() methods each start their own
+// goroutines respectively, and the three communicate
+// over the channels held in Chaser and Home.
 //
 type Chaser struct {
 	ReqStop chan bool
@@ -233,6 +240,12 @@ const Beta who = 2
 const Both who = 3
 
 type Home struct {
+	ReqStop chan bool
+	Done    chan bool
+
+	IsAlphaHome chan bool
+	IsBetaHome  chan bool
+
 	alphaArrivesHome chan bool
 	betaArrivesHome  chan bool
 
@@ -242,25 +255,27 @@ type Home struct {
 	shouldAlphaGoNow chan bool
 	shouldBetaGoNow  chan bool
 
-	alphaHome           bool
-	betaHome            bool
-	lastHome            who
+	tellBetaToGo  chan bool
+	tellAlphaToGo chan bool
+
+	alphaHome bool
+	betaHome  bool
+
 	shouldAlphaGoCached bool
 	shouldBetaGoCached  bool
 
-	ReqStop chan bool
-	Done    chan bool
-
-	IsAlphaHome chan bool
-	IsBetaHome  chan bool
-
-	tellBetaToGo  chan bool
-	tellAlphaToGo chan bool
+	lastHome who
 }
 
 func NewHome() *Home {
 
 	s := &Home{
+		ReqStop: make(chan bool),
+		Done:    make(chan bool),
+
+		IsAlphaHome: make(chan bool),
+		IsBetaHome:  make(chan bool),
+
 		alphaArrivesHome: make(chan bool),
 		betaArrivesHome:  make(chan bool),
 
@@ -269,18 +284,15 @@ func NewHome() *Home {
 
 		shouldAlphaGoNow: make(chan bool),
 		shouldBetaGoNow:  make(chan bool),
-		alphaHome:        true,
-		betaHome:         true,
-		IsAlphaHome:      make(chan bool),
-		IsBetaHome:       make(chan bool),
-		ReqStop:          make(chan bool),
-		Done:             make(chan bool),
 
 		tellBetaToGo:  make(chan bool),
 		tellAlphaToGo: make(chan bool),
 
 		shouldAlphaGoCached: true,
 		shouldBetaGoCached:  false,
+
+		alphaHome: true,
+		betaHome:  true,
 	}
 	return s
 }
@@ -305,7 +317,7 @@ func (s *Home) Start() {
 			case <-s.alphaArrivesHome:
 				s.alphaHome = true
 
-				VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Alpha
 				if s.betaHome {
@@ -315,11 +327,11 @@ func (s *Home) Start() {
 					}
 				}
 				s.update()
-				VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
 				s.betaHome = true
-				VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Beta
 				if s.alphaHome {
@@ -329,17 +341,17 @@ func (s *Home) Start() {
 					}
 				}
 				s.update()
-				VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.alphaDepartsHome:
 				s.alphaHome = false
 				s.update()
-				VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
+				//VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
 
 			case <-s.betaDepartsHome:
 				s.betaHome = false
 				s.update()
-				VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
+				//VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
 
 			case s.shouldAlphaGoNow <- s.shouldAlphaGoCached:
 
