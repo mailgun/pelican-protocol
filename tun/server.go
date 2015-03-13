@@ -21,7 +21,7 @@ type ReverseProxy struct {
 	web     *WebServer
 
 	packetQueue chan *tunnelPacket
-	createQueue chan *tunnel
+	createQueue chan *LongPoller
 }
 
 func (p *ReverseProxy) Stop() {
@@ -52,19 +52,19 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 		Done:        make(chan bool),
 		ReqStop:     make(chan bool),
 		packetQueue: make(chan *tunnelPacket),
-		createQueue: make(chan *tunnel),
+		createQueue: make(chan *LongPoller),
 	}
 }
 
 // only callable from same goroutine as Start(); and
 // only callled by Start() on shutting down.
-func (s *ReverseProxy) finish(tunnelMap *map[string]*tunnel) {
+func (s *ReverseProxy) finish(tunnelMap *map[string]*LongPoller) {
 	s.web.Stop()
 	po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
 
 	// close all our downstream connections
 	for _, t := range *tunnelMap {
-		t.lp.Stop()
+		t.Stop()
 	}
 
 	close(s.Done)
@@ -77,7 +77,7 @@ func (s *ReverseProxy) Start() {
 
 	// start processing loop
 	go func() {
-		tunnelMap := make(map[string]*tunnel)
+		tunnelMap := make(map[string]*LongPoller)
 		defer func() { s.finish(&tunnelMap) }()
 		po("ReverseProxy::Start(), aka tunnelMuxer started\n")
 		for {
@@ -95,7 +95,7 @@ func (s *ReverseProxy) Start() {
 				//po("tunnelMuxer found tunnel for key '%x'\n", pp.key)
 
 				select {
-				case tunnel.RecvPacket <- pp:
+				case tunnel.ClientPacketRecvd <- pp:
 				case <-s.ReqStop:
 					// don't deadlock
 					return
@@ -156,14 +156,18 @@ func (s *ReverseProxy) startExternalHttpListener() {
 			return
 		}
 
-		tunnel, err := s.NewTunnel(s.Cfg.Dest.IpPort)
+		tunnel := NewLongPoller(s.Cfg.Dest)
+
+		err = tunnel.Start()
 		if err != nil {
 			po("Server::createHandler: Could not connect to destination: '%s'.\n", err)
 			http.Error(respW, fmt.Sprintf("Could not connect to destination: '%s'", err),
 				http.StatusInternalServerError)
 			return
 		}
+
 		key := tunnel.key
+		s.createQueue <- tunnel
 
 		respW.Write([]byte(key))
 		po("Server::createHandler done for key '%x'...\n", key[:5])

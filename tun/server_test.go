@@ -62,8 +62,11 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 
 	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver\n", t, func() {
 
-		tunnel, err := rev.NewTunnel(web.Cfg.Listen.IpPort)
+		tunnel := NewLongPoller(web.Cfg.Listen)
+		err := tunnel.Start()
 		cv.So(err, cv.ShouldEqual, nil)
+		defer tunnel.Stop()
+		rev.createQueue <- tunnel
 
 		body := []byte(`GET /ping HTTP/1.1
 Host: 127.0.0.1:54284

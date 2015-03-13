@@ -26,7 +26,7 @@ func (a *Addr) SetIpPort() {
 
 var ipColonPortRegex = regexp.MustCompile(`^([^:]*)\:(.*)$`)
 
-func NewAddr1(ipport string) Addr {
+func NewAddr1(ipport string) (*Addr, error) {
 	var ip string
 	var port int
 	var err error
@@ -38,13 +38,15 @@ func NewAddr1(ipport string) Addr {
 	}
 	ip = match[1]
 	port, err = strconv.Atoi(match[2])
-	panicOn(err)
+	if err != nil {
+		return nil, fmt.Errorf("error: could not find ':' in NewAddr1(): '%s'", err)
+	}
 
 	//fmt.Printf("ip = '%s', port = %d\n", ip, port)
 
-	return Addr{
+	return &Addr{
 		Ip:     ip,
 		Port:   port,
 		IpPort: ipport,
-	}
+	}, nil
 }

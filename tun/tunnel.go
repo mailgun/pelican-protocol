@@ -1,124 +1,21 @@
 package pelicantun
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"time"
 )
 
-// a tunnel represents a 1:1, one client to one server connection,
-// if you ignore the socks-proxy and reverse-proxy in the middle.
-// A ReverseProxy can have many tunnels, mirroring the number of
-// connections on the client side to the socks proxy. The key
-// distinguishes them.
-type tunnel struct {
-	ReqStop chan bool
-	Done    chan bool
-
-	RecvPacket chan *tunnelPacket
-
-	// server issues a unique key for the connection, which allows multiplexing
-	// of multiple client connections from this one ip if need be.
-	// The ssh integrity checks inside the tunnel prevent malicious tampering.
-	key string
-
-	lp        *LongPoller
-	recvCount int
-}
-
-func (s *tunnel) finish() {
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
-	close(s.Done)
-}
-
-func (s *tunnel) Start() {
-	go func() {
-		// all exit paths should cleanup properly
-		defer func() {
-			s.finish()
-		}()
-
-		for {
-			select {
-			case pp := <-s.RecvPacket:
-				s.recvCount++
-				po("\n ====================\n server tunnel.recvCount = %d    len(pack.body)= %d\n ================\n", s.recvCount, len(pp.body))
-
-				// client initiated packet arrived, we should
-				// tell any outstanding long-poll to return now.
-				select {
-				case s.lp.ClientPacketRecvd <- pp:
-				case <-s.ReqStop:
-					return
-				}
-			case <-s.ReqStop:
-				return
-			}
-		}
-	}()
-}
-
-func (s *tunnel) Stop() {
-	// avoid double closing ReqStop here
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
-	<-s.Done
-}
-
-func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
-	key := GenPelicanKey()
-
-	po("ReverseProxy::NewTunnel() top. key = '%x'...\n", key[:5])
-	t = &tunnel{
-		//circ:      rbuf.NewFixedSizeRingBuf(256 << 10),
-		key:        string(key),
-		recvCount:  0,
-		RecvPacket: make(chan *tunnelPacket),
-	}
-	po("ReverseProxy::NewTunnel: Attempting connect to our target '%s'\n", destAddr)
-	dialer := net.Dialer{
-		Timeout:   1000 * time.Millisecond,
-		KeepAlive: 30 * time.Second,
-	}
-
-	conn, err := dialer.Dial("tcp", destAddr)
-	switch err.(type) {
-	case *net.OpError:
-		if strings.HasSuffix(err.Error(), "connection refused") {
-			// could not reach destination
-			return nil, err
-		}
-	default:
-		panicOn(err)
-	}
-
-	t.lp = NewLongPoller()
-	t.lp.Start(conn)
-
-	po("ReverseProxy::NewTunnel: ResponseWriter directed to '%s'\n", destAddr)
-
-	po("ReverseProxy::NewTunnel about to send createQueue <- t, where t = %p\n", t)
-	rev.createQueue <- t
-	po("ReverseProxy::NewTunnel: sent createQueue <- t.\n")
-
-	po("ReverseProxy::NewTunnel done.\n")
-	return
-}
-
-// receiveOnePacket() closes pack.done after:
-//   writing pack.body to t.dnConn;
-//   reading from t.dnConn some bytes if available;
-//   and writing those bytes to pack.resp
+// A LongPoller (aka tunnel) connects the http client (our pelican socks proxy)
+// with the downstream target, typically an http server or sshd.
 //
-//  t.dnConn is the downstream ultimate webserver
-//  destination.
+// A LongPoller represents a 1:1, one client to one server connection,
+// if you ignore the socks-proxy and reverse-proxy in the middle.
+// A ReverseProxy can have many LongPollers, mirroring the number of
+// connections on the client side to the socks proxy. The key
+// distinguishes them. The LongerPoller is where we implement the
+// server side of the long polling.
 //
 type LongPoller struct {
 	ReqStop           chan bool
@@ -127,14 +24,28 @@ type LongPoller struct {
 
 	rw        *RW // manage the goroutines that read and write dnConn
 	recvCount int
+	conn      net.Conn
+
+	// server issues a unique key for the connection, which allows multiplexing
+	// of multiple client connections from this one ip if need be.
+	// The ssh integrity checks inside the tunnel prevent malicious tampering.
+	key string
+
+	Dest Addr
 }
 
-func NewLongPoller() *LongPoller {
+func NewLongPoller(dest Addr) *LongPoller {
+	key := GenPelicanKey()
+	dest.SetIpPort()
+
 	s := &LongPoller{
 		ReqStop:           make(chan bool),
 		Done:              make(chan bool),
 		ClientPacketRecvd: make(chan *tunnelPacket),
+		key:               string(key),
+		Dest:              dest,
 	}
+
 	return s
 }
 
@@ -170,9 +81,15 @@ func (s *LongPoller) finish() {
 //
 // There are only ever two client requests outstanding.
 //
-func (s *LongPoller) Start(conn net.Conn) {
+func (s *LongPoller) Start() error {
 
-	s.rw = NewRW(conn, 0)
+	err := s.dial()
+	if err != nil {
+		return fmt.Errorf("LongPoller could not dial '%s': '%s'", s.Dest.IpPort, err)
+	}
+
+	// s.dial() sets s.conn on success.
+	s.rw = NewRW(s.conn, 0)
 	s.rw.Start()
 
 	go func() {
@@ -197,6 +114,11 @@ func (s *LongPoller) Start(conn net.Conn) {
 				}
 			}
 
+			// INVAR: pack is not nil
+			if pack == nil {
+				panic("pack should never nil at this point")
+			}
+
 			po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
 			// read from the request body and write to the ResponseWriter
 
@@ -211,7 +133,7 @@ func (s *LongPoller) Start(conn net.Conn) {
 			// read out of the buffer and write it to dnConn
 			pack.resp.Header().Set("Content-type", "application/octet-stream")
 
-			// read for a long duration. this is the "long poll" part.
+			// wait for a read for a possibly long duration. this is the "long poll" part.
 			dur := 30 * time.Second
 			// the client will spin up another goroutine/thread/sender if it has
 			// an additional send in the meantime.
@@ -252,4 +174,28 @@ func (s *LongPoller) Start(conn net.Conn) {
 			}
 		}
 	}()
+	return nil
+}
+
+func (s *LongPoller) dial() error {
+
+	po("ReverseProxy::NewTunnel: Attempting connect to our target '%s'\n", s.Dest.IpPort)
+	dialer := net.Dialer{
+		Timeout:   1000 * time.Millisecond,
+		KeepAlive: 30 * time.Second,
+	}
+
+	var err error
+	s.conn, err = dialer.Dial("tcp", s.Dest.IpPort)
+	switch err.(type) {
+	case *net.OpError:
+		if strings.HasSuffix(err.Error(), "connection refused") {
+			// could not reach destination
+			return err
+		}
+	default:
+		panicOn(err)
+	}
+
+	return err
 }
