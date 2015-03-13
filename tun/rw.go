@@ -290,12 +290,12 @@ func (s *RW) Start() {
 
 func (s *RW) Close() {
 	s.Stop()
-	s.conn.Close()
 }
 
 func (s *RW) Stop() {
 	s.r.Stop()
 	s.w.Stop()
+	s.conn.Close()
 }
 
 func (s *RW) SendToDownCh() chan []byte {

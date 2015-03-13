@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
-	"strings"
-	"time"
 )
 
 type ReverseProxyConfig struct {
@@ -67,12 +64,13 @@ func (s *ReverseProxy) finish(tunnelMap *map[string]*tunnel) {
 
 	// close all our downstream connections
 	for _, t := range *tunnelMap {
-		t.rw.Close()
+		t.lp.Stop()
 	}
 
 	close(s.Done)
 }
 
+// dispatch to tunnel based on key
 func (s *ReverseProxy) Start() {
 
 	s.startExternalHttpListener()
@@ -95,8 +93,13 @@ func (s *ReverseProxy) Start() {
 				}
 				// handle
 				//po("tunnelMuxer found tunnel for key '%x'\n", pp.key)
-				tunnel.receiveOnePacket(pp)
 
+				select {
+				case tunnel.RecvPacket <- pp:
+				case <-s.ReqStop:
+					// don't deadlock
+					return
+				}
 			case p := <-s.createQueue:
 				po("tunnelMuxer: got p=%p on <-createQueue\n", p)
 				tunnelMap[p.key] = p
@@ -184,22 +187,6 @@ const (
 	readTimeoutMsec = 1000
 )
 
-// a tunnel represents a 1:1, one client to one server connection,
-// if you ignore the socks-proxy and reverse-proxy in the middle.
-// A ReverseProxy can have many tunnels, mirroring the number of
-// connections on the client side to the socks proxy. The key
-// distinguishes them.
-type tunnel struct {
-
-	// server issues a unique key for the connection, which allows multiplexing
-	// of multiple client connections from this one ip if need be.
-	// The ssh integrity checks inside the tunnel prevent malicious tampering.
-	key       string
-	recvCount int
-	rw        *RW // manage the goroutines that read and write dnConn
-	//circ      *rbuf.FixedSizeRingBuf
-}
-
 type tunnelPacket struct {
 	resp    http.ResponseWriter
 	respdup *bytes.Buffer // duplicate resp here, to enable testing
@@ -212,46 +199,6 @@ type tunnelPacket struct {
 
 // print out shortcut
 var po = VPrintf
-
-func (rev *ReverseProxy) NewTunnel(destAddr string) (t *tunnel, err error) {
-	key := GenPelicanKey()
-
-	po("ReverseProxy::NewTunnel() top. key = '%x'...\n", key[:5])
-	t = &tunnel{
-		//circ:      rbuf.NewFixedSizeRingBuf(256 << 10),
-		key:       string(key),
-		recvCount: 0,
-	}
-	po("ReverseProxy::NewTunnel: Attempting connect to our target '%s'\n", destAddr)
-	dialer := net.Dialer{
-		Timeout:   1000 * time.Millisecond,
-		KeepAlive: 30 * time.Second,
-	}
-
-	conn, err := dialer.Dial("tcp", destAddr)
-	switch err.(type) {
-	case *net.OpError:
-		if strings.HasSuffix(err.Error(), "connection refused") {
-			// could not reach destination
-			return nil, err
-		}
-	default:
-		panicOn(err)
-	}
-
-	// RW holds the conn, reads, writes, and closes it for us.
-	t.rw = NewRW(conn, 0)
-	t.rw.Start()
-
-	po("ReverseProxy::NewTunnel: ResponseWriter directed to '%s'\n", destAddr)
-
-	po("ReverseProxy::NewTunnel about to send createQueue <- t, where t = %p\n", t)
-	rev.createQueue <- t
-	po("ReverseProxy::NewTunnel: sent createQueue <- t.\n")
-
-	po("ReverseProxy::NewTunnel done.\n")
-	return
-}
 
 func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string) ([]byte, error) {
 	pack := &tunnelPacket{
@@ -283,89 +230,4 @@ func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body
 		// don't deadlock
 	}
 	return pack.respdup.Bytes(), nil
-}
-
-// receiveOnePacket() closes pack.done after:
-//   writing pack.body to t.dnConn;
-//   reading from t.dnConn some bytes if available;
-//   and writing those bytes to pack.resp
-//
-//  t.dnConn is the downstream ultimate webserver
-//  destination.
-//
-func (t *tunnel) receiveOnePacket(pack *tunnelPacket) {
-	t.recvCount++
-	po("\n ====================\n server tunnel.recvCount = %d    len(pack.body)= %d\n ================\n", t.recvCount, len(pack.body))
-
-	po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
-	// read from the request body and write to the ResponseWriter
-
-	wait := 10 * time.Second
-	select {
-	case t.rw.SendToDownCh() <- pack.body:
-	case <-time.After(wait):
-		po("unable to send to downstream in receiveOnPacket after '%v'; aborting\n", wait)
-		return
-	}
-	/*
-		n, err := t.dnConn.Write(pack.body)
-		if n != len(pack.body) {
-			log.Printf("tunnel::handle(pack): could only write %d of the %d bytes to the connection. err = '%v'", n, len(pack.body), err)
-		} else {
-			po("tunnel::handle(pack): wrote all %d bytes of pack.body to the final (sshd server) connection: '%s'.", len(pack.body), string(pack.body))
-		}
-		// done in packetHandler now: pack.request.Body.Close()
-		if err == io.EOF {
-			t.dnConn.Close() // let the server shutdown sooner rather than holding open the connection.
-			t.dnConn = nil
-			log.Printf("tunnel::handle(pack): EOF for key '%x'", t.key)
-			return
-		}
-	*/
-
-	// read out of the buffer and write it to dnConn
-	pack.resp.Header().Set("Content-type", "application/octet-stream")
-
-	/*
-		b500 := make([]byte, 1<<17) // 128KB
-
-		err = t.dnConn.SetReadDeadline(time.Now().Add(time.Millisecond * readTimeoutMsec))
-		panicOn(err)
-
-		n64, err := t.dnConn.Read(b500)
-		if err != nil {
-			// i/o timeout expected
-		}
-		po("\n\n server got reply from t.dnConn of len %d: '%s'\n", n64, string(b500[:n64]))
-	*/
-
-	//circ.Reset()
-
-	// read for dur
-	dur := 10 * time.Millisecond
-	var n64 int64
-readloop:
-	for {
-		select {
-		case b500 := <-t.rw.RecvFromDownCh():
-			n64 += int64(len(b500))
-			_, err := pack.resp.Write(b500)
-			if err != nil {
-				panic(err)
-			}
-
-			_, err = pack.respdup.Write(b500)
-			if err != nil {
-				panic(err)
-			}
-
-		case <-time.After(dur):
-			break readloop
-		}
-	}
-
-	// don't panicOn(err)
-	log.Printf("tunnel::handle(pack): io.Copy into pack.resp from t.dnConn moved %d bytes.\n", n64)
-	close(pack.done)
-	po("tunnel::handle(pack) done.\n")
 }
