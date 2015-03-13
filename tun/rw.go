@@ -6,6 +6,77 @@ import (
 	"time"
 )
 
+//
+// in this file: RW and its essential members NetConnReader and NetConnWriter
+//
+
+// ===========================================
+//
+//                   RW
+//
+// ===========================================
+
+// RW contains a reader and a writer for a specific
+// net.Conn connection. It contains both a
+// NetConnReader and a NetConnWriter; these work as a pair to
+// move data from a net.Conn into the corresponding channels
+// upReadToDnWrite and dnReadToUpWrite.
+//
+type RW struct {
+	conn            net.Conn
+	r               *NetConnReader
+	w               *NetConnWriter
+	upReadToDnWrite chan []byte // can only receive []byte from upstream
+	dnReadToUpWrite chan []byte // can only send []byte to upstream
+}
+
+// make a new RW, passing bufsz to NewNetConnReader().
+func NewRW(netconn net.Conn, bufsz int) *RW {
+
+	upReadToDnWrite := make(chan []byte)
+	dnReadToUpWrite := make(chan []byte)
+
+	s := &RW{
+		conn:            netconn,
+		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, nil),
+		w:               NewNetConnWriter(netconn, upReadToDnWrite, nil),
+		upReadToDnWrite: upReadToDnWrite,
+		dnReadToUpWrite: dnReadToUpWrite,
+	}
+	return s
+}
+
+// Start the RW service.
+func (s *RW) Start() {
+	s.r.Start()
+	s.w.Start()
+}
+
+// Close is the same as Stop(). Both shutdown the running RW service.
+// Start must have been called first.
+func (s *RW) Close() {
+	s.Stop()
+}
+
+// Stop the RW service. Start must be called prior to Stop.
+func (s *RW) Stop() {
+	s.r.Stop()
+	s.w.Stop()
+	s.conn.Close()
+}
+
+func (s *RW) SendToDownCh() chan []byte {
+	return s.w.SendToDownCh()
+}
+
+func (s *RW) RecvFromDownCh() chan []byte {
+	return s.r.RecvFromDownCh()
+}
+
+func (s *RW) IsDone() bool {
+	return s.r.IsDone() && s.w.IsDone()
+}
+
 func IsTimeout(err error) bool {
 	if err == nil {
 		return false
@@ -13,6 +84,12 @@ func IsTimeout(err error) bool {
 	e, ok := err.(net.Error)
 	return ok && e.Timeout()
 }
+
+// ===========================================
+//
+// ============== NetConnReader ==============
+//
+// ===========================================
 
 // NetConnReader and NetConnWriter work as a pair to
 // move data from a net.Conn into go channels. Each
@@ -45,9 +122,9 @@ type NetConnReader struct {
 	dnReadToUpWrite chan []byte // can only send []byte upstream
 
 	// report to the one user of NetConnReader that we have stopped
-	// over notifyDone, iff reportDone is true.
-	notifyDone chan *NetConnReader
-	reportDone bool
+	// over notifyDoneCh, iff reportDone is true.
+	notifyDoneCh chan *NetConnReader
+	reportDone   bool
 }
 
 // NetConnReaderDefaultBufSizeBytes declares the default read buffer size.
@@ -71,7 +148,7 @@ func NewNetConnReader(netconn net.Conn, dnReadToUpWrite chan []byte, bufsz int, 
 		dnReadToUpWrite: dnReadToUpWrite,
 		timeout:         10 * time.Millisecond,
 		bufsz:           bufsz,
-		notifyDone:      notifyDone,
+		notifyDoneCh:    notifyDone,
 	}
 }
 
@@ -98,8 +175,8 @@ func (s *NetConnReader) finish() {
 	close(s.dnReadToUpWrite)
 	s.dnReadToUpWrite = nil
 
-	if s.reportDone && s.notifyDone != nil {
-		s.notifyDone <- s
+	if s.reportDone && s.notifyDoneCh != nil {
+		s.notifyDoneCh <- s
 	}
 	close(s.Done)
 }
@@ -157,6 +234,35 @@ func (s *NetConnReader) Stop() {
 	<-s.Done
 }
 
+func (s *NetConnReader) StopAndNotify() {
+	s.reportDone = true
+	s.Stop()
+}
+
+func (r *NetConnReader) IsStopRequested() bool {
+	select {
+	case <-r.ReqStop:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *NetConnReader) IsDone() bool {
+	select {
+	case <-r.Done:
+		return true
+	default:
+		return false
+	}
+}
+
+// ===========================================
+//
+// ============== NetConnWriter ==============
+//
+// ===========================================
+
 // NetConnWriter is the downstream most writer in the reverse proxy.
 // It represents a goroutine dedicated to reading from UpReadToDnWrite
 // channel and then writing conn.
@@ -171,9 +277,9 @@ type NetConnWriter struct {
 	timeout         time.Duration
 
 	// report to the one user of NetConnWriter that we have stopped
-	// over notifyDone, iff reportDone is true.
-	notifyDone chan *NetConnWriter
-	reportDone bool
+	// over notifyDoneCh, iff reportDone is true.
+	notifyDoneCh chan *NetConnWriter
+	reportDone   bool
 }
 
 // make a new NetConnWriter
@@ -185,7 +291,7 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone 
 		conn:            netconn,
 		upReadToDnWrite: upReadToDnWrite,
 		timeout:         40 * time.Millisecond,
-		notifyDone:      notifyDone,
+		notifyDoneCh:    notifyDone,
 	}
 }
 
@@ -210,8 +316,8 @@ func (s *NetConnWriter) finish() {
 	close(s.upReadToDnWrite)
 	s.upReadToDnWrite = nil
 
-	if s.reportDone && s.notifyDone != nil {
-		s.notifyDone <- s
+	if s.reportDone && s.notifyDoneCh != nil {
+		s.notifyDoneCh <- s
 	}
 	close(s.Done)
 }
@@ -303,88 +409,9 @@ func (s *NetConnWriter) Stop() {
 	<-s.Done
 }
 
-// RW contains a reader and a writer for a specific
-// net.Conn connection. It contains both a
-// NetConnReader and a NetConnWriter; these work as a pair to
-// move data from a net.Conn into the corresponding channels
-// upReadToDnWrite and dnReadToUpWrite.
-//
-type RW struct {
-	conn            net.Conn
-	r               *NetConnReader
-	w               *NetConnWriter
-	upReadToDnWrite chan []byte // can only receive []byte from upstream
-	dnReadToUpWrite chan []byte // can only send []byte to upstream
-}
-
-// make a new RW, passing bufsz to NewNetConnReader().
-func NewRW(netconn net.Conn, bufsz int) *RW {
-
-	upReadToDnWrite := make(chan []byte)
-	dnReadToUpWrite := make(chan []byte)
-
-	s := &RW{
-		conn:            netconn,
-		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, nil),
-		w:               NewNetConnWriter(netconn, upReadToDnWrite, nil),
-		upReadToDnWrite: upReadToDnWrite,
-		dnReadToUpWrite: dnReadToUpWrite,
-	}
-	return s
-}
-
-// Start the RW service.
-func (s *RW) Start() {
-	s.r.Start()
-	s.w.Start()
-}
-
-// Close is the same as Stop(). Both shutdown the running RW service.
-// Start must have been called first.
-func (s *RW) Close() {
-	s.Stop()
-}
-
-// Stop the RW service. Start must be called prior to Stop.
-func (s *RW) Stop() {
-	s.r.Stop()
-	s.w.Stop()
-	s.conn.Close()
-}
-
-func (s *RW) SendToDownCh() chan []byte {
-	return s.w.SendToDownCh()
-}
-
-func (s *RW) RecvFromDownCh() chan []byte {
-	return s.r.RecvFromDownCh()
-}
-
-func (s *RW) IsDone() bool {
-	return s.r.IsDone() && s.w.IsDone()
-}
-
-func (r *NetConnReader) IsStopRequested() bool {
-	select {
-	case <-r.ReqStop:
-		return true
-	default:
-		return false
-	}
-}
-
 func (r *NetConnWriter) IsStopRequested() bool {
 	select {
 	case <-r.ReqStop:
-		return true
-	default:
-		return false
-	}
-}
-
-func (r *NetConnReader) IsDone() bool {
-	select {
-	case <-r.Done:
 		return true
 	default:
 		return false
@@ -398,4 +425,9 @@ func (r *NetConnWriter) IsDone() bool {
 	default:
 		return false
 	}
+}
+
+func (s *NetConnWriter) StopAndNotify() {
+	s.reportDone = true
+	s.Stop()
 }
