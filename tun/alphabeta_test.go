@@ -51,3 +51,11 @@ func TestPelicanSocksProxyHomePolicyMakerForLongPolling014(t *testing.T) {
 		})
 	})
 }
+
+func TestPelicanSocksProxyChaserHasSmallLatency015(t *testing.T) {
+	cv.Convey("When we start the PelicanSocksProxy, the client end long-poller called 'Chaser' should provide small latency of desire-to-send to time-to-send to the client and the server.\n", t, func() {
+
+		// simulate two Chaser's talking to each other
+
+	})
+}

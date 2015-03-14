@@ -16,21 +16,25 @@ import (
 //
 // ===========================================
 
-// RW contains a reader and a writer for a specific
-// net.Conn connection. It contains both a
-// NetConnReader and a NetConnWriter; these work as a pair to
+// RW packages up a reader and a writer for a specific
+// net.Conn connection along with a copy of that net connection.
+//
+// The NetConnReader and the NetConnWriter work as a pair to
 // move data from a net.Conn into the corresponding channels
 // upReadToDnWrite and dnReadToUpWrite.
 //
 type RW struct {
 	conn            net.Conn
-	r               *NetConnReader
-	w               *NetConnWriter
+	R               *NetConnReader
+	W               *NetConnWriter
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	dnReadToUpWrite chan []byte // can only send []byte to upstream
 }
 
-// make a new RW, passing bufsz to NewNetConnReader().
+// make a new RW, passing bufsz to NewNetConnReader(). If the notifyWriterDone
+// and/or notifyReaderDone channels are not nil, then they will
+// receive a pointer to the NetConnReader (NetConnWriter) at Stop() time.
+//
 func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *RW {
 
 	upReadToDnWrite := make(chan []byte)
@@ -38,8 +42,8 @@ func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, no
 
 	s := &RW{
 		conn:            netconn,
-		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
-		w:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
+		R:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
+		W:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
 		upReadToDnWrite: upReadToDnWrite,
 		dnReadToUpWrite: dnReadToUpWrite,
 	}
@@ -48,8 +52,8 @@ func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, no
 
 // Start the RW service.
 func (s *RW) Start() {
-	s.r.Start()
-	s.w.Start()
+	s.R.Start()
+	s.W.Start()
 }
 
 // Close is the same as Stop(). Both shutdown the running RW service.
@@ -60,21 +64,34 @@ func (s *RW) Close() {
 
 // Stop the RW service. Start must be called prior to Stop.
 func (s *RW) Stop() {
-	s.r.Stop()
-	s.w.Stop()
+	s.R.Stop()
+	s.W.Stop()
 	s.conn.Close()
 }
 
+func (s *RW) StopWithoutNotify() {
+	s.R.StopWithoutNotify()
+	s.W.StopWithoutNotify()
+	s.conn.Close()
+}
+
+func (s *RW) WriteCh() chan []byte {
+	return s.W.SendToDownCh()
+}
+func (s *RW) ReadCh() chan []byte {
+	return s.R.RecvFromDownCh()
+}
+
 func (s *RW) SendToDownCh() chan []byte {
-	return s.w.SendToDownCh()
+	return s.W.SendToDownCh()
 }
 
 func (s *RW) RecvFromDownCh() chan []byte {
-	return s.r.RecvFromDownCh()
+	return s.R.RecvFromDownCh()
 }
 
 func (s *RW) IsDone() bool {
-	return s.r.IsDone() && s.w.IsDone()
+	return s.R.IsDone() && s.W.IsDone()
 }
 
 func IsTimeout(err error) bool {
@@ -155,9 +172,9 @@ func NewNetConnReader(
 		bufsz:           bufsz,
 		notifyDoneCh:    notifyDone,
 	}
-	if s.notifyDoneCh != nil {
-		s.reportDone = true
-	}
+	//	if s.notifyDoneCh != nil {
+	//		s.reportDone = true
+	//	}
 	return s
 }
 
@@ -310,9 +327,9 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone 
 		timeout:         40 * time.Millisecond,
 		notifyDoneCh:    notifyDone,
 	}
-	if s.notifyDoneCh != nil {
-		s.reportDone = true
-	}
+	//	if s.notifyDoneCh != nil {
+	//		s.reportDone = true
+	//	}
 	return s
 }
 

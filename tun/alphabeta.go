@@ -71,7 +71,7 @@ func NewChaser() *Chaser {
 //
 // If they both find themselves at home at once, then the
 // tie is arbitrarily broken and alpha goes (hence
-// the name).
+// the name, 'alpha').
 //
 // In this way we implement the ping-pong of
 // long-polling. Within the constraints of only
@@ -252,6 +252,9 @@ type Home struct {
 	alphaDepartsHome chan bool
 	betaDepartsHome  chan bool
 
+	// for measuring latency under simulation
+	localWishesToSend chan bool
+
 	shouldAlphaGoNow chan bool
 	shouldBetaGoNow  chan bool
 
@@ -265,6 +268,9 @@ type Home struct {
 	shouldBetaGoCached  bool
 
 	lastHome who
+
+	localReqArrTm  int64
+	latencyHistory []int64
 }
 
 func NewHome() *Home {
@@ -287,6 +293,8 @@ func NewHome() *Home {
 
 		tellBetaToGo:  make(chan bool),
 		tellAlphaToGo: make(chan bool),
+
+		localWishesToSend: make(chan bool),
 
 		shouldAlphaGoCached: true,
 		shouldBetaGoCached:  false,
@@ -315,6 +323,14 @@ func (s *Home) Start() {
 			case s.IsBetaHome <- s.betaHome:
 
 			case <-s.alphaArrivesHome:
+				// for latency study
+				if s.localReqArrTm > 0 {
+					lat := time.Now().UnixNano() - s.localReqArrTm
+					s.latencyHistory = append(s.latencyHistory, lat)
+					fmt.Printf("\n latency: %v\n", lat)
+					s.localReqArrTm = 0
+				}
+
 				s.alphaHome = true
 
 				//VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
@@ -330,6 +346,13 @@ func (s *Home) Start() {
 				//VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
+				// for latency study
+				if s.localReqArrTm > 0 {
+					lat := time.Now().UnixNano() - s.localReqArrTm
+					s.latencyHistory = append(s.latencyHistory, lat)
+					fmt.Printf("\n latency: %v\n", lat)
+					s.localReqArrTm = 0
+				}
 				s.betaHome = true
 				//VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
 
@@ -360,6 +383,15 @@ func (s *Home) Start() {
 			case <-s.ReqStop:
 				close(s.Done)
 				return
+
+			case <-s.localWishesToSend:
+				// for measuring latency under simulation
+				s.localReqArrTm = time.Now().UnixNano()
+				if s.numHome() > 0 {
+					s.latencyHistory = append(s.latencyHistory, 0)
+					fmt.Printf("\n latency: %v\n", time.Duration(0))
+					s.localReqArrTm = 0 // send done instantly, reset to indicate no pending send.
+				}
 			}
 		}
 	}()
