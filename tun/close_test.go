@@ -14,10 +14,10 @@ func TestPelicanSocksProxyHandlesClientConnectionClose008(t *testing.T) {
 	psp.testonly_dont_contact_downstream = true
 	psp.Start()
 	defer psp.Stop()
-	if psp.doneAlarm != nil {
-		panic("client psp logic error: doneAlarm must be nil until we arm it.")
-	}
-	//po("topcount = %d\n", psp.GetTopLoopCount())
+
+	//	if psp.doneAlarm != nil {
+	//		panic("client psp logic error: doneAlarm must be nil until we arm it.")
+	//	}
 
 	cv.Convey("Given a started PelicanSocksProxy, we should handle Close of the socket after Accept gracefully\n", t, func() {
 

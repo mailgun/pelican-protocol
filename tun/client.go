@@ -16,55 +16,33 @@ type PelicanSocksProxyConfig struct {
 	tickIntervalMsec int
 }
 
-// for requesting a doneAlarm and preventing races
-// during testing
-type ReaderDoneAlarmTicket struct {
-	// the chan bool received on Reply can be waited on to know
-	// when the reader-done alarm fires. It is the most
-	// recent f.doneAlarm from the Start() goroutine.
-	Reply chan chan bool
-
-	// don't read TopLoopCount until Reply is received. Race otherwise.
-	TopLoopCount int64
-}
-
-func NewReaderDoneAlarmTicket() *ReaderDoneAlarmTicket {
-	return &ReaderDoneAlarmTicket{
-		Reply: make(chan chan bool),
-	}
-}
-
 type PelicanSocksProxy struct {
 	Cfg     PelicanSocksProxyConfig
 	Ready   chan bool
 	ReqStop chan bool
 	Done    chan bool
 
-	Up                   *TcpUpstreamReceiver
-	readers              map[*ConnReader]bool
-	LastRemoteReq        chan net.Addr
-	OpenClientReq        chan int
-	lastRemote           net.Addr
-	ConnReaderDoneCh     chan *ConnReader
-	ReaderDoneAlarmReqCh chan *ReaderDoneAlarmTicket
+	Up               *TcpUpstreamReceiver
+	readers          map[*ConnReader]bool
+	LastRemoteReq    chan net.Addr
+	OpenClientReq    chan int
+	lastRemote       net.Addr
+	ConnReaderDoneCh chan *ConnReader
 
 	testonly_dont_contact_downstream bool
-	doneAlarm                        chan bool
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
 
 	p := &PelicanSocksProxy{
-		Cfg:                  cfg,
-		Ready:                make(chan bool),
-		ReqStop:              make(chan bool),
-		Done:                 make(chan bool),
-		readers:              make(map[*ConnReader]bool),
-		LastRemoteReq:        make(chan net.Addr),
-		OpenClientReq:        make(chan int),
-		ConnReaderDoneCh:     make(chan *ConnReader),
-		doneAlarm:            nil, // nil on purpose to start with
-		ReaderDoneAlarmReqCh: make(chan *ReaderDoneAlarmTicket),
+		Cfg:              cfg,
+		Ready:            make(chan bool),
+		ReqStop:          make(chan bool),
+		Done:             make(chan bool),
+		readers:          make(map[*ConnReader]bool),
+		LastRemoteReq:    make(chan net.Addr),
+		OpenClientReq:    make(chan int),
+		ConnReaderDoneCh: make(chan *ConnReader),
 	}
 	p.SetDefault()
 	p.Up = NewTcpUpstreamReceiver(p.Cfg.Listen)
@@ -97,41 +75,6 @@ func (f *PelicanSocksProxy) Stop() {
 	close(f.ReqStop)
 	<-f.Done
 	WaitUntilServerDown(f.Cfg.Listen.IpPort)
-}
-
-func (f *PelicanSocksProxy) GetDoneReaderIndicator() chan bool {
-	ticket := NewReaderDoneAlarmTicket()
-
-	select {
-	case f.ReaderDoneAlarmReqCh <- ticket:
-	case <-f.ReqStop:
-		return nil //, fmt.Errorf("PelicanSocksProxy shutting down.")
-	case <-f.Done:
-		return nil //, fmt.Errorf("PelicanSocksProxy shutting down.")
-	}
-
-	// sent, so we are sure to get a reply, based on the implementation/
-	// handling of f.ReaderDoneAlarmReqCh in Start()
-	doneAlarm := <-ticket.Reply
-
-	return doneAlarm
-}
-
-func (f *PelicanSocksProxy) GetTopLoopCount() int64 {
-	ticket := NewReaderDoneAlarmTicket()
-
-	select {
-	case f.ReaderDoneAlarmReqCh <- ticket:
-	case <-f.ReqStop:
-		return -1 //, fmt.Errorf("PelicanSocksProxy shutting down.")
-	case <-f.Done:
-		return -1 //, fmt.Errorf("PelicanSocksProxy shutting down.")
-	}
-
-	// sent, so we are sure to get a reply, based on the implementation/
-	// handling of f.ReaderDoneAlarmReqCh in Start()
-	<-ticket.Reply
-	return ticket.TopLoopCount
 }
 
 func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
@@ -309,31 +252,11 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 	return string(key), nil
 }
 
-func (f *PelicanSocksProxy) redoAlarm() {
-	// allow tests to wait until a doneReader has been received, to avoid racing.
-	if f.doneAlarm != nil {
-		//po("closing active done alarm\n")
-		close(f.doneAlarm)
-		f.doneAlarm = nil
-	}
-}
-
 func (f *PelicanSocksProxy) Start() error {
 	err := f.Up.Start()
 	if err != nil {
 		panic(fmt.Errorf("could not start f.Up, our TcpUpstreamReceiver; error: '%s'", err))
 	}
-
-	// will this bother our server to get a hang up right away? no, but it means
-	// our open and close handling logic will get exercised immediately.
-	// Also, very important to do this to prevent races on startup. Test correctness
-	// will non-deterministically be impacted if we don't wait with WaitUntilServerUp()
-	// here.
-	f.doneAlarm = make(chan bool)
-	WaitUntilServerUp(f.Cfg.Listen.IpPort)
-
-	// ticker to set a rate at which to hit the server
-	//tick := time.NewTicker(time.Duration(int64(f.Cfg.tickIntervalMsec)) * time.Millisecond)
 
 	buf := new(bytes.Buffer)
 	buf.Reset()
@@ -369,8 +292,6 @@ func (f *PelicanSocksProxy) Start() error {
 						fmt.Fprintf(upConn, "PSP/PelicanSocksProxy error: could not connect to downstream PelicanReverseProxy server at address '%s': error was '%s'", f.Cfg.Dest.IpPort, err)
 						upConn.Close()
 
-						// don't block startup just because we failed here.
-						f.redoAlarm()
 						continue
 					}
 					if key == "" {
@@ -383,16 +304,6 @@ func (f *PelicanSocksProxy) Start() error {
 				f.readers[connReader] = true
 				//po("after add, len(readers) = %d\n", len(f.readers))
 
-			case alarmReq := <-f.ReaderDoneAlarmReqCh:
-				//po("got request for done alarm\n")
-
-				if f.doneAlarm == nil {
-					f.doneAlarm = make(chan bool)
-				}
-				alarmReq.TopLoopCount = topLoopCount
-				alarmReq.Reply <- f.doneAlarm
-				//po("replied with done alarm\n")
-
 			case doneReader := <-f.ConnReaderDoneCh:
 				//po("doneReader received on channel, len(readers) = %d\n", len(f.readers))
 				if !f.readers[doneReader] {
@@ -401,7 +312,7 @@ func (f *PelicanSocksProxy) Start() error {
 				delete(f.readers, doneReader)
 				//po("after delete, len(readers) = %d\n", len(f.readers))
 
-				f.redoAlarm()
+				//f.redoAlarm()
 
 			case <-f.ReqStop:
 				po("client: in <-f.ReqStop, len(readers) = %d\n", len(f.readers))
@@ -421,10 +332,7 @@ func (f *PelicanSocksProxy) Start() error {
 		}
 	}()
 
-	// wait until the WaitUntilServerUp(f.Cfg.Listen.IpPort) completes processing.
-	// the go-routine above has to start and get the close message before doneAlarm
-	// will be closed in turn.
-	<-f.doneAlarm
+	WaitUntilServerUp(f.Cfg.Listen.IpPort)
 
 	return nil
 }
