@@ -555,7 +555,7 @@ func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
 
 	body, err := ioutil.ReadAll(resp.Body)
 	panicOn(err)
-	po("client: resp.Body = '%s'\n", string(body))
+	//po("client: resp.Body = '%s'\n", string(body))
 
 	return body, err
 }

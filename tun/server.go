@@ -121,8 +121,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		body, err := ioutil.ReadAll(r.Body)
 		r.Body.Close()
 		panicOn(err)
-		po("top level handler(): in '/' and '/ping' packetHandler, packet len without key: %d: making new tunnelPacket, url = '%s', http.Request r = '%#v'. r.Body = '%s'\n",
-			len(body)-KeyLen, r.URL, *r, string(body))
+		//po("top level handler(): in '/' and '/ping' packetHandler, packet len without key: %d: making new tunnelPacket, url = '%s', http.Request r = '%#v'. r.Body = '%s'\n", len(body)-KeyLen, r.URL, *r, string(body))
 
 		key := make([]byte, KeyLen)
 		copy(key, body)

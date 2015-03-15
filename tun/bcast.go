@@ -196,7 +196,7 @@ func (r *BcastServer) Start() error {
 
 		// the Accept loop
 		for {
-			po("BcastServer::Start(): top of for{} loop.\n")
+			//po("BcastServer::Start(): top of for{} loop.\n")
 			if r.IsStopRequested() {
 				return
 			}
@@ -241,8 +241,9 @@ func (r *BcastServer) Start() error {
 					err = netconn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 					panicOn(err)
 
-					n, _ := netconn.Read(buf)
-					po("reader service routine read buf '%s'\n", string(buf[:n]))
+					netconn.Read(buf)
+					//n, _ := netconn.Read(buf)
+					//po("reader service routine read buf '%s'\n", string(buf[:n]))
 				}
 			}(conn)
 

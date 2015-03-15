@@ -78,7 +78,10 @@ func (f *PelicanSocksProxy) Stop() {
 	close(f.ReqStop)
 	<-f.Done
 	WaitUntilServerDown(f.Cfg.Listen.IpPort)
-	f.chaser.Stop()
+	if f.chaser != nil {
+		// chaser can be nil
+		f.chaser.Stop()
+	}
 }
 
 func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
@@ -306,7 +309,7 @@ func (f *PelicanSocksProxy) Start() error {
 				chaser := NewChaser(upConn, bufSize, key, f.ChaserDoneCh, f.Cfg.Dest)
 				chaser.Start()
 				f.chasers[chaser] = true
-				//po("after add, len(chasers) = %d\n", len(f.chasers))
+				po("after add, len(chasers) = %d\n", len(f.chasers))
 
 			case doneReader := <-f.ChaserDoneCh:
 				//po("doneReader received on channel, len(chasers) = %d\n", len(f.chasers))
