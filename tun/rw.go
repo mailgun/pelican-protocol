@@ -391,7 +391,6 @@ func (s *NetConnWriter) Start() {
 
 		var err error
 		var n int
-		var wroteOk bool
 		var buf []byte
 
 		for {
@@ -408,7 +407,6 @@ func (s *NetConnWriter) Start() {
 			panicOn(err)
 
 			nbuf := len(buf)
-			wroteOk = false
 
 		tryloop:
 			for {
@@ -419,7 +417,6 @@ func (s *NetConnWriter) Start() {
 					}
 
 					// successful write, leave the loop
-					wroteOk = true
 					break tryloop
 				}
 
@@ -427,7 +424,6 @@ func (s *NetConnWriter) Start() {
 					buf = buf[n:]
 					if len(buf) == 0 {
 						// weird that we still timed out...? go with it.
-						wroteOk = true
 						break tryloop
 					}
 					// else keep trying
@@ -436,7 +432,7 @@ func (s *NetConnWriter) Start() {
 					if s.IsStopRequested() {
 						return
 					}
-					continue
+					continue tryloop
 				}
 
 				if err != nil && !IsTimeout(err) {
@@ -444,11 +440,6 @@ func (s *NetConnWriter) Start() {
 					return
 				}
 			} // end try loop
-
-			if !wroteOk {
-				panic("internal program logic error: should never get here if could not write!")
-			}
-
 		}
 	}()
 
