@@ -1,6 +1,7 @@
 package pelicantun
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"time"
@@ -14,7 +15,10 @@ func example_main() {
 	globalHome = c.home
 
 	for i := 1; i < 100; i++ {
-		c.incoming <- i
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, uint64(i))
+
+		c.incoming <- buf
 		rsleep()
 		rsleep()
 		rsleep()
@@ -31,7 +35,7 @@ func NewChaser() *Chaser {
 		alphaDone: make(chan bool),
 		betaDone:  make(chan bool),
 
-		incoming:    make(chan int),
+		incoming:    make(chan []byte),
 		alphaIsHome: true,
 		betaIsHome:  true,
 		closedChan:  make(chan bool),
@@ -91,7 +95,7 @@ type Chaser struct {
 	ReqStop chan bool
 	Done    chan bool
 
-	incoming    chan int
+	incoming    chan []byte
 	alphaIsHome bool
 	betaIsHome  bool
 
@@ -126,10 +130,10 @@ func (s *Chaser) Stop() {
 func (s *Chaser) StartAlpha() {
 	go func() {
 		defer func() { close(s.alphaDone) }()
-		var work int
+		var work []byte
 		var goNow bool
 		for {
-			work = 0
+			work = []byte{}
 
 			select {
 			case goNow = <-s.home.shouldAlphaGoNow:
@@ -157,7 +161,7 @@ func (s *Chaser) StartAlpha() {
 					}
 				}
 			}
-			if work > 0 {
+			if len(work) > 0 {
 				// quiet compiler
 			}
 
@@ -180,10 +184,10 @@ func (s *Chaser) StartAlpha() {
 func (s *Chaser) StartBeta() {
 	go func() {
 		defer func() { close(s.betaDone) }()
-		var work int
+		var work []byte
 		var goNow bool
 		for {
-			work = 0
+			work = []byte{}
 
 			select {
 			case goNow = <-s.home.shouldBetaGoNow:
@@ -211,7 +215,7 @@ func (s *Chaser) StartBeta() {
 					}
 				}
 			}
-			if work > 0 {
+			if len(work) > 0 {
 				// quiet compiler
 			}
 
