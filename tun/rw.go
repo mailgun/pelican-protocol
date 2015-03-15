@@ -26,8 +26,8 @@ import (
 //
 type RW struct {
 	conn            net.Conn
-	R               *NetConnReader
-	W               *NetConnWriter
+	r               *NetConnReader
+	w               *NetConnWriter
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	dnReadToUpWrite chan []byte // can only send []byte to upstream
 }
@@ -47,8 +47,8 @@ func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, no
 
 	s := &RW{
 		conn:            netconn,
-		R:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
-		W:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
+		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
+		w:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
 		upReadToDnWrite: upReadToDnWrite,
 		dnReadToUpWrite: dnReadToUpWrite,
 	}
@@ -57,8 +57,8 @@ func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, no
 
 // Start the RW service.
 func (s *RW) Start() {
-	s.R.Start()
-	s.W.Start()
+	s.r.Start()
+	s.w.Start()
 }
 
 // Close is the same as Stop(). Both shutdown the running RW service.
@@ -69,37 +69,37 @@ func (s *RW) Close() {
 
 // Stop the RW service. Start must be called prior to Stop.
 func (s *RW) Stop() {
-	s.R.Stop()
-	s.W.Stop()
+	s.r.Stop()
+	s.w.Stop()
 	s.conn.Close()
 }
 
 func (s *RW) StopWithoutNotify() {
-	s.R.StopWithoutNotify()
-	s.W.StopWithoutNotify()
+	s.r.StopWithoutNotify()
+	s.w.StopWithoutNotify()
 	s.conn.Close()
 }
 
 // can only be used to send to internal net.Conn
-func (s *RW) SendCh() chan<- []byte {
-	return s.W.SendToDownCh()
+func (s *RW) SendCh() chan []byte {
+	return s.w.SendToDownCh()
 }
 
 // can only be used to recv from internal net.Conn
-func (s *RW) RecvCh() <-chan []byte {
-	return s.R.RecvFromDownCh()
+func (s *RW) RecvCh() chan []byte {
+	return s.r.RecvFromDownCh()
 }
 
 func (s *RW) SendToDownCh() chan []byte {
-	return s.W.SendToDownCh()
+	return s.w.SendToDownCh()
 }
 
-func (s *RW) RecvFromDownCh() <-chan []byte {
-	return s.R.RecvFromDownCh()
+func (s *RW) RecvFromDownCh() chan []byte {
+	return s.r.RecvFromDownCh()
 }
 
 func (s *RW) IsDone() bool {
-	return s.R.IsDone() && s.W.IsDone()
+	return s.r.IsDone() && s.w.IsDone()
 }
 
 func IsTimeout(err error) bool {
@@ -189,7 +189,7 @@ func NewNetConnReader(
 // return the internal s.dnReadToUpWrite channel which allows
 // clients of NetConnReader to receive data from the downstream
 // server.
-func (s *NetConnReader) RecvFromDownCh() <-chan []byte {
+func (s *NetConnReader) RecvFromDownCh() chan []byte {
 	select {
 	case <-s.ReqStop:
 		return nil

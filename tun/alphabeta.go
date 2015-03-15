@@ -1,14 +1,20 @@
 package pelicantun
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
 	"math/rand"
+	"net"
+	"net/http"
 	"time"
 )
 
 var globalHome *Home
 
+/*
 func example_main() {
 	c := NewChaser()
 	c.Start()
@@ -26,20 +32,42 @@ func example_main() {
 	}
 
 }
+*/
 
-func NewChaser() *Chaser {
+func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, dest Addr) *Chaser {
+
+	if key == "" || len(key) != KeyLen {
+		panic(fmt.Errorf("sendThenRecv error: key '%s' was not of expected length %d", key, KeyLen))
+	}
+
+	if dest.IpPort == "" {
+		panic(fmt.Errorf("dest.IpPort was empty the string"))
+	}
+	if dest.Port == 0 {
+		panic(fmt.Errorf("dest.Port was 0"))
+	}
+
+	rw := NewRW(conn, bufsz, nil, nil)
+
 	s := &Chaser{
+		rw: rw,
+
 		ReqStop: make(chan bool),
 		Done:    make(chan bool),
 
 		alphaDone: make(chan bool),
 		betaDone:  make(chan bool),
 
-		incoming:    make(chan []byte),
+		incoming:    rw.RecvCh(), // requests to the remote http
+		repliesHere: rw.SendCh(), // replies from remote http are passed upstream here.
+
 		alphaIsHome: true,
 		betaIsHome:  true,
 		closedChan:  make(chan bool),
 		home:        NewHome(),
+		dest:        dest,
+		key:         key,
+		notifyDone:  notifyDone,
 	}
 
 	// always closed
@@ -86,8 +114,8 @@ func NewChaser() *Chaser {
 // traffic profile of pauses on either end.
 //
 // The actual logic is implemented in Home, which
-// has its own goroutine. The StartAlpha() and
-// StartBeta() methods each start their own
+// has its own goroutine. The startAlpha() and
+// startBeta() methods each start their own
 // goroutines respectively, and the three communicate
 // over the channels held in Chaser and Home.
 //
@@ -96,6 +124,7 @@ type Chaser struct {
 	Done    chan bool
 
 	incoming    chan []byte
+	repliesHere chan []byte
 	alphaIsHome bool
 	betaIsHome  bool
 
@@ -107,15 +136,35 @@ type Chaser struct {
 
 	closedChan chan bool
 	home       *Home
+
+	key  string
+	dest Addr
+
+	rw *RW
+
+	notifyDone chan *Chaser
+	skipNotify bool
 }
 
 func (s *Chaser) Start() {
 	s.home.Start()
-	s.StartAlpha()
-	s.StartBeta()
+	s.startAlpha()
+	s.startBeta()
+	s.rw.Start()
+	fmt.Printf("\n\n Chaser %p started.\n", s)
 }
 
+// Stops without reporting anything on the
+// notifyDone channel passed to NewChaser().
+func (s *Chaser) StopWithoutReporting() {
+	s.skipNotify = true
+	s.Stop()
+}
+
+// Stop the Chaser.
 func (s *Chaser) Stop() {
+	fmt.Printf("\n\n Chaser %p stopping.\n", s)
+
 	select {
 	case <-s.ReqStop:
 	default:
@@ -124,10 +173,18 @@ func (s *Chaser) Stop() {
 	<-s.alphaDone
 	<-s.betaDone
 	s.home.Stop()
+
+	if !s.skipNotify {
+		select {
+		case s.notifyDone <- s:
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	s.rw.Stop()
 	close(s.Done)
 }
 
-func (s *Chaser) StartAlpha() {
+func (s *Chaser) startAlpha() {
 	go func() {
 		defer func() { close(s.alphaDone) }()
 		var work []byte
@@ -161,27 +218,35 @@ func (s *Chaser) StartAlpha() {
 					}
 				}
 			}
-			if len(work) > 0 {
-				// quiet compiler
-			}
 
 			// send request to server
 			s.home.alphaDepartsHome <- true
-			//rsleep()
+
+			// ================================
+			// request-response cycle here
+			// ================================
+
+			replyBytes, err := s.DoRequestRespnose(work)
+			if err != nil {
+				panic(fmt.Errorf("alpha aborting on error from DoRequestResponse: '%s'", err))
+			}
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
 
-			// deliver any response data to our client
-			//rsleep()
-
+			// deliver any response data (body) to our client
+			select {
+			case s.repliesHere <- replyBytes:
+			case <-s.ReqStop:
+				return
+			}
 		}
 	}()
 }
 
 // Beta is responsible for the second http
 // connection.
-func (s *Chaser) StartBeta() {
+func (s *Chaser) startBeta() {
 	go func() {
 		defer func() { close(s.betaDone) }()
 		var work []byte
@@ -215,19 +280,29 @@ func (s *Chaser) StartBeta() {
 					}
 				}
 			}
-			if len(work) > 0 {
-				// quiet compiler
-			}
 
 			// send request to server
 			s.home.betaDepartsHome <- true
-			//rsleep()
+
+			// ================================
+			// request-response cycle here
+			// ================================
+
+			replyBytes, err := s.DoRequestRespnose(work)
+			if err != nil {
+				panic(fmt.Errorf("beta aborting on error from DoRequestResponse: '%s'", err))
+			}
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
 
-			// deliver any response data to our client
-			//rsleep()
+			// deliver any response data (body) to our client
+			select {
+			case s.repliesHere <- replyBytes:
+			case <-s.ReqStop:
+				return
+			}
+
 		}
 	}()
 }
@@ -427,4 +502,40 @@ func (s *Home) update() {
 	s.shouldAlphaGoCached = s.shouldAlphaGo()
 	s.shouldBetaGoCached = s.shouldBetaGo()
 
+}
+
+func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
+
+	//modeled after: func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer) error {
+	// write buf to new http request, starting with key
+
+	//po("\n\n debug: sendThenRecv called with dest: '%#v', key: '%s', and buf: '%s'\n", dest, key, string(buf.Bytes()))
+
+	// assemble key + work into request
+	req := bytes.NewBuffer([]byte(s.key))
+	req.Write(work) // add work after key
+
+	resp, err := http.Post(
+		"http://"+s.dest.IpPort+"/",
+		"application/octet-stream",
+		req)
+
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			ioutil.ReadAll(resp.Body) // read anything leftover, so connection can be reused.
+			resp.Body.Close()
+		}
+	}()
+
+	if err != nil && err != io.EOF {
+		log.Println(err.Error())
+		//continue
+		return []byte{}, err
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	panicOn(err)
+	po("client: resp.Body = '%s'\n", string(body))
+
+	return body, err
 }

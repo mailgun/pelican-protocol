@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -22,12 +23,12 @@ type PelicanSocksProxy struct {
 	ReqStop chan bool
 	Done    chan bool
 
-	Up               *TcpUpstreamReceiver
-	readers          map[*ConnReader]bool
-	LastRemoteReq    chan net.Addr
-	OpenClientReq    chan int
-	lastRemote       net.Addr
-	ConnReaderDoneCh chan *ConnReader
+	Up            *TcpUpstreamReceiver
+	chasers       map[*Chaser]bool
+	LastRemoteReq chan net.Addr
+	OpenClientReq chan int
+	lastRemote    net.Addr
+	ChaserDoneCh  chan *Chaser
 
 	testonly_dont_contact_downstream bool
 
@@ -37,19 +38,17 @@ type PelicanSocksProxy struct {
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
 
 	p := &PelicanSocksProxy{
-		Cfg:              cfg,
-		Ready:            make(chan bool),
-		ReqStop:          make(chan bool),
-		Done:             make(chan bool),
-		readers:          make(map[*ConnReader]bool),
-		LastRemoteReq:    make(chan net.Addr),
-		OpenClientReq:    make(chan int),
-		ConnReaderDoneCh: make(chan *ConnReader),
-		chaser:           NewChaser(),
+		Cfg:           cfg,
+		Ready:         make(chan bool),
+		ReqStop:       make(chan bool),
+		Done:          make(chan bool),
+		chasers:       make(map[*Chaser]bool),
+		LastRemoteReq: make(chan net.Addr),
+		OpenClientReq: make(chan int),
+		ChaserDoneCh:  make(chan *Chaser),
 	}
 	p.SetDefault()
 	p.Up = NewTcpUpstreamReceiver(p.Cfg.Listen)
-	p.chaser.Start()
 
 	return p
 }
@@ -274,7 +273,7 @@ func (f *PelicanSocksProxy) Start() error {
 		for {
 			topLoopCount++
 			select {
-			case f.OpenClientReq <- len(f.readers):
+			case f.OpenClientReq <- len(f.chasers):
 				// nothing more, just send when requested
 
 			case f.LastRemoteReq <- f.lastRemote:
@@ -289,7 +288,7 @@ func (f *PelicanSocksProxy) Start() error {
 				if f.testonly_dont_contact_downstream {
 					po("client/PSP: Start(): handling upConn = <-f.Up.UpstreamTcpConnChan: " +
 						"f.testonly_dont_contact_downstream is true.\n")
-					key = "testkey"
+					key = "testkey" + strings.Repeat("0", KeyLen-len("testkey"))
 				} else {
 					key, err = f.ConnectDownstreamHttp()
 					if err != nil {
@@ -304,31 +303,31 @@ func (f *PelicanSocksProxy) Start() error {
 					}
 				}
 
-				connReader := NewConnReader(upConn, bufSize, key, f.ConnReaderDoneCh, f.Cfg.Dest)
-				connReader.Start()
-				f.readers[connReader] = true
-				//po("after add, len(readers) = %d\n", len(f.readers))
+				chaser := NewChaser(upConn, bufSize, key, f.ChaserDoneCh, f.Cfg.Dest)
+				chaser.Start()
+				f.chasers[chaser] = true
+				//po("after add, len(chasers) = %d\n", len(f.chasers))
 
-			case doneReader := <-f.ConnReaderDoneCh:
-				//po("doneReader received on channel, len(readers) = %d\n", len(f.readers))
-				if !f.readers[doneReader] {
-					panic(fmt.Sprintf("doneReader %p not found in f.readers = '%#v'", doneReader, f.readers))
+			case doneReader := <-f.ChaserDoneCh:
+				//po("doneReader received on channel, len(chasers) = %d\n", len(f.chasers))
+				if !f.chasers[doneReader] {
+					panic(fmt.Sprintf("doneReader %p not found in f.chasers = '%#v'", doneReader, f.chasers))
 				}
-				delete(f.readers, doneReader)
-				//po("after delete, len(readers) = %d\n", len(f.readers))
+				delete(f.chasers, doneReader)
+				//po("after delete, len(chasers) = %d\n", len(f.chasers))
 
 				//f.redoAlarm()
 
 			case <-f.ReqStop:
-				po("client: in <-f.ReqStop, len(readers) = %d\n", len(f.readers))
+				po("client: in <-f.ReqStop, len(chasers) = %d\n", len(f.chasers))
 				f.Up.Stop()
 
-				// the reader.Stop() will call back in on f.ConnReaderDoneCh
+				// the reader.Stop() will call back in on f.ChaserDoneCh
 				// to report finishing. Therefore we use StopWithoutReporting()
 				// here to avoid a deadlock situation.
-				for reader, _ := range f.readers {
+				for reader, _ := range f.chasers {
 					reader.StopWithoutReporting()
-					delete(f.readers, reader)
+					delete(f.chasers, reader)
 				}
 
 				close(f.Done)
