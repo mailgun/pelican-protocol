@@ -205,6 +205,8 @@ func (s *Chaser) startAlpha() {
 				// launch with the data in work
 				case <-s.ReqStop:
 					return
+				case <-s.betaDone:
+					return
 				case <-s.home.tellAlphaToGo:
 					// we can launch without data, but
 					// make sure there isn't some data waiting,
@@ -228,7 +230,8 @@ func (s *Chaser) startAlpha() {
 
 			replyBytes, err := s.DoRequestRespnose(work)
 			if err != nil {
-				panic(fmt.Errorf("alpha aborting on error from DoRequestResponse: '%s'", err))
+				po("alpha aborting on error from DoRequestResponse: '%s'", err)
+				return
 			}
 
 			// if Beta is here, tell him to head out.
@@ -267,6 +270,8 @@ func (s *Chaser) startBeta() {
 					// launch with the data in work
 				case <-s.ReqStop:
 					return
+				case <-s.alphaDone:
+					return
 				case <-s.home.tellBetaToGo:
 					// we can launch without data, but
 					// make sure there isn't some data waiting,
@@ -290,7 +295,8 @@ func (s *Chaser) startBeta() {
 
 			replyBytes, err := s.DoRequestRespnose(work)
 			if err != nil {
-				panic(fmt.Errorf("beta aborting on error from DoRequestResponse: '%s'", err))
+				po("beta aborting on error from DoRequestResponse: '%s'", err)
+				return
 			}
 
 			// if Alpha is here, tell him to head out.
@@ -331,6 +337,9 @@ type Home struct {
 	alphaDepartsHome chan bool
 	betaDepartsHome  chan bool
 
+	//	alphaShutdown chan bool
+	//	betaShutdown  chan bool
+
 	// for measuring latency under simulation
 	localWishesToSend chan bool
 
@@ -342,6 +351,9 @@ type Home struct {
 
 	alphaHome bool
 	betaHome  bool
+
+	//	alphaShut bool
+	//	betaShut  bool
 
 	shouldAlphaGoCached bool
 	shouldBetaGoCached  bool
@@ -366,6 +378,9 @@ func NewHome() *Home {
 
 		alphaDepartsHome: make(chan bool),
 		betaDepartsHome:  make(chan bool),
+
+		//alphaShutdown: make(chan bool),
+		//betaShutdown:  make(chan bool),
 
 		shouldAlphaGoNow: make(chan bool),
 		shouldBetaGoNow:  make(chan bool),
@@ -471,6 +486,11 @@ func (s *Home) Start() {
 					fmt.Printf("\n latency: %v\n", time.Duration(0))
 					s.localReqArrTm = 0 // send done instantly, reset to indicate no pending send.
 				}
+
+				//			case <-s.alphaShutdown:
+				//				s.alphaShut = true
+				//			case <-s.betaShutdown:
+				//				s.betaShut = true
 			}
 		}
 	}()
