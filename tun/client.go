@@ -30,6 +30,8 @@ type PelicanSocksProxy struct {
 	ConnReaderDoneCh chan *ConnReader
 
 	testonly_dont_contact_downstream bool
+
+	chaser *Chaser // managers our http connections; see alphabeta.go
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
@@ -43,9 +45,11 @@ func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
 		LastRemoteReq:    make(chan net.Addr),
 		OpenClientReq:    make(chan int),
 		ConnReaderDoneCh: make(chan *ConnReader),
+		chaser:           NewChaser(),
 	}
 	p.SetDefault()
 	p.Up = NewTcpUpstreamReceiver(p.Cfg.Listen)
+	p.chaser.Start()
 
 	return p
 }
@@ -75,6 +79,7 @@ func (f *PelicanSocksProxy) Stop() {
 	close(f.ReqStop)
 	<-f.Done
 	WaitUntilServerDown(f.Cfg.Listen.IpPort)
+	f.chaser.Stop()
 }
 
 func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
