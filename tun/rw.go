@@ -37,8 +37,12 @@ type RW struct {
 //
 func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *RW {
 
-	upReadToDnWrite := make(chan []byte)
-	dnReadToUpWrite := make(chan []byte)
+	// buffered channels here are important: we want
+	// exactly buffered channel semantics: don't block
+	// on typical access, until we are full up and then
+	// we do need the backpressure of blocking.
+	upReadToDnWrite := make(chan []byte, 1000)
+	dnReadToUpWrite := make(chan []byte, 1000)
 
 	s := &RW{
 		conn:            netconn,
@@ -136,6 +140,8 @@ type NetConnReader struct {
 	// clients of NewConnReader should get access to the channel
 	// via calling RecvFromDownCh() so we can nil the channel when
 	// the downstream server is unavailable.
+	// dnReadToUpWrite will have some capacity, which gives
+	// us backpressure.
 	dnReadToUpWrite chan []byte // can only send []byte upstream
 
 	// report to the one user of NetConnReader that we have stopped
@@ -166,15 +172,13 @@ func NewNetConnReader(
 		Done:            make(chan bool),
 		ReqStop:         make(chan bool),
 		Ready:           make(chan bool),
-		conn:            netconn,
 		dnReadToUpWrite: dnReadToUpWrite,
-		timeout:         10 * time.Millisecond,
-		bufsz:           bufsz,
-		notifyDoneCh:    notifyDone,
+
+		conn:         netconn,
+		timeout:      10 * time.Millisecond,
+		bufsz:        bufsz,
+		notifyDoneCh: notifyDone,
 	}
-	//	if s.notifyDoneCh != nil {
-	//		s.reportDone = true
-	//	}
 	return s
 }
 
@@ -218,6 +222,7 @@ func (s *NetConnReader) Start() {
 			s.finish()
 		}()
 
+		buf := make([]byte, s.bufsz)
 		for {
 			if s.IsStopRequested() {
 				return
@@ -226,10 +231,11 @@ func (s *NetConnReader) Start() {
 			err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
 			panicOn(err)
 
-			buf := make([]byte, s.bufsz)
-
 			n64, err := s.conn.Read(buf)
 			if IsTimeout(err) {
+				if n64 != 0 {
+					panic(fmt.Errorf("unexpected: got timeout and read of %d bytes back", n64))
+				}
 				continue
 			}
 
@@ -238,12 +244,25 @@ func (s *NetConnReader) Start() {
 				return // shuts us down
 			}
 
+			if n64 == 0 {
+				continue
+			}
+
+			buf = buf[:n64]
+
 			select {
-			case s.dnReadToUpWrite <- buf[:n64]:
+			// backpressure gets applied here. When buffer channel dnReadToUpWrite
+			// is full, we will block until the consumer end of this
+			// channel makes progress.
+			case s.dnReadToUpWrite <- buf:
 			case <-s.ReqStop:
+				// avoid deadlock on shutdown
 				return
 			}
 
+			// create a new buf now that the last one has been
+			// sent and is now owned by the receiver.
+			buf = make([]byte, s.bufsz)
 		}
 	}()
 }
