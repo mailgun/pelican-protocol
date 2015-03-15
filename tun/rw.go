@@ -21,7 +21,8 @@ import (
 //
 // The NetConnReader and the NetConnWriter work as a pair to
 // move data from a net.Conn into the corresponding channels
-// upReadToDnWrite and dnReadToUpWrite.
+// supplied by SendCh() and RecvCh() for access to the connection
+// via channels/goroutines.
 //
 type RW struct {
 	conn            net.Conn
@@ -79,10 +80,13 @@ func (s *RW) StopWithoutNotify() {
 	s.conn.Close()
 }
 
-func (s *RW) WriteCh() chan []byte {
+// can only be used to send to internal net.Conn
+func (s *RW) SendCh() chan<- []byte {
 	return s.W.SendToDownCh()
 }
-func (s *RW) ReadCh() chan []byte {
+
+// can only be used to recv from internal net.Conn
+func (s *RW) RecvCh() <-chan []byte {
 	return s.R.RecvFromDownCh()
 }
 
@@ -90,7 +94,7 @@ func (s *RW) SendToDownCh() chan []byte {
 	return s.W.SendToDownCh()
 }
 
-func (s *RW) RecvFromDownCh() chan []byte {
+func (s *RW) RecvFromDownCh() <-chan []byte {
 	return s.R.RecvFromDownCh()
 }
 
@@ -185,7 +189,7 @@ func NewNetConnReader(
 // return the internal s.dnReadToUpWrite channel which allows
 // clients of NetConnReader to receive data from the downstream
 // server.
-func (s *NetConnReader) RecvFromDownCh() chan []byte {
+func (s *NetConnReader) RecvFromDownCh() <-chan []byte {
 	select {
 	case <-s.ReqStop:
 		return nil
