@@ -1,12 +1,8 @@
 package pelicantun
 
-import (
-	"testing"
-	"time"
+//	cv "github.com/glycerine/goconvey/convey"
 
-	cv "github.com/glycerine/goconvey/convey"
-)
-
+/*
 func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	cli, srv, rev, fwd, err := StartTestSystemWithBcast()
@@ -48,6 +44,7 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	//	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }
+*/
 
 /*
 func TestLongPollKeepsFifoOrdering016(t *testing.T) {
