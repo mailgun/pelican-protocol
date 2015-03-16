@@ -49,6 +49,7 @@ func TestBcastCliSrvWorkStandAlone008(t *testing.T) {
 	})
 }
 
+// The actual point of longpoll_test.go is to run this 010 round-trip test for low-latency.
 func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	cli, srv, rev, fwd, err := StartTestSystemWithBcast()
@@ -57,10 +58,11 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 	defer rev.Stop()
 	defer fwd.Stop()
 
-	cli.Start()
-	defer cli.Stop()
 	<-srv.FirstClient
 	po("got past <-srv.FirstClient\n")
+
+	cli.Start()
+	defer cli.Stop()
 
 	<-srv.SecondClient
 	po("got past <-srv.SecondClient\n")

@@ -22,16 +22,21 @@ import (
 // distinguishes them. The LongerPoller is where we implement the
 // server side of the long polling.
 //
-//  http request flow (client initiating direction), http replies
-//  flow in the opposite direction of the arrows below.
+// http request flow (client initiating direction), http replies
+// flow in the opposite direction of the arrows below.
 //
-//   web-browser                             web-server
-//      |                                       ^
-//      v                                       |
+//       web-browser                           web-server
+//           |                                    ^
+//           v                                    |
 // -----------------------             -------------------------
-// | pelican-socks-proxy |             | pelican-reverse-proxy |
-// |       (Chaser) ---->|------------>|---> (LongPoller)      |
+// |         |           |             |          ^            |
+// |         v           |             |          |            |
+// | TcpUpstreamReceiver |             |         RW            |
+// |      |              |             |          ^            |
+// |      v              |    http     |          |            |
+// |   Chaser ---> RW -> |------------>|---> (LongPoller)      |
 // -----------------------             -------------------------
+//   pelican-socks-proxy                 pelican-reverse-proxy
 //
 type LongPoller struct {
 	reqStop           chan bool
