@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sync"
 )
 
 type ReverseProxyConfig struct {
@@ -17,15 +18,32 @@ type ReverseProxyConfig struct {
 type ReverseProxy struct {
 	Cfg     ReverseProxyConfig
 	Done    chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	web     *WebServer
 
 	packetQueue chan *tunnelPacket
 	createQueue chan *LongPoller
+	mut         sync.Mutex
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *ReverseProxy) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 func (p *ReverseProxy) Stop() {
-	p.ReqStop <- true
+	p.RequestStop()
 	<-p.Done
 }
 
@@ -50,7 +68,7 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 	return &ReverseProxy{
 		Cfg:         cfg,
 		Done:        make(chan bool),
-		ReqStop:     make(chan bool),
+		reqStop:     make(chan bool),
 		packetQueue: make(chan *tunnelPacket),
 		createQueue: make(chan *LongPoller),
 	}
@@ -96,7 +114,7 @@ func (s *ReverseProxy) Start() {
 
 				select {
 				case tunnel.ClientPacketRecvd <- pp:
-				case <-s.ReqStop:
+				case <-s.reqStop:
 					// don't deadlock
 					return
 				}
@@ -105,7 +123,7 @@ func (s *ReverseProxy) Start() {
 				tunnelMap[p.key] = p
 				//po("tunnelMuxer: after adding key '%x'..., tunnelMap is now: '%#v'\n", p.key[:5], tunnelMap)
 
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				// deferred finish() takes care of the rest
 				return
 			}
@@ -218,7 +236,7 @@ func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body
 
 	case <-s.Done:
 		// don't deadlock
-	case <-s.ReqStop:
+	case <-s.reqStop:
 		// don't deadlock
 	}
 
@@ -229,7 +247,7 @@ func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body
 
 	case <-s.Done:
 		// don't deadlock
-	case <-s.ReqStop:
+	case <-s.reqStop:
 		// don't deadlock
 	}
 	return pack.respdup.Bytes(), nil

@@ -1,8 +1,12 @@
 package pelicantun
 
-//	cv "github.com/glycerine/goconvey/convey"
+import (
+	"testing"
+	"time"
 
-/*
+	cv "github.com/glycerine/goconvey/convey"
+)
+
 func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	cli, srv, rev, fwd, err := StartTestSystemWithBcast()
@@ -18,7 +22,7 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 
 		po("got past <-srv.FirstClient\n")
 
-		defer func() { po("deferred frunction running...!\n") }()
+		defer func() { po("deferred function running...!\n") }()
 
 		msg := "BREAKING NEWS"
 		srv.Bcast(msg)
