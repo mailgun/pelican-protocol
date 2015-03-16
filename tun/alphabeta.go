@@ -202,10 +202,12 @@ func (s *Chaser) startMonitor() {
 				s.rw.StopWithoutNotify()
 				return
 			case <-s.rwReaderDone:
+				po("monitor got rwReaderDone\n")
 				s.rw.StopWithoutNotify()
 				s.RequestStop()
 				return
 			case <-s.rwWriterDone:
+				po("monitor got rwWriterDone\n")
 				s.rw.StopWithoutNotify()
 				s.RequestStop()
 				return
@@ -283,6 +285,10 @@ func (s *Chaser) startAlpha() {
 				}
 			}
 
+			if len(work) == 0 {
+				continue
+			}
+
 			// send request to server
 			s.home.alphaDepartsHome <- true
 
@@ -351,6 +357,10 @@ func (s *Chaser) startBeta() {
 						// if we don't have any.
 					}
 				}
+			}
+
+			if len(work) == 0 {
+				continue
 			}
 
 			// send request to server

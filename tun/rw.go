@@ -185,6 +185,9 @@ func NewNetConnReader(
 		bufsz:        bufsz,
 		notifyDoneCh: notifyDone,
 	}
+	if s.notifyDoneCh != nil {
+		s.reportDone = true
+	}
 	return s
 }
 
@@ -365,9 +368,9 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone 
 		timeout:         40 * time.Millisecond,
 		notifyDoneCh:    notifyDone,
 	}
-	//	if s.notifyDoneCh != nil {
-	//		s.reportDone = true
-	//	}
+	if s.notifyDoneCh != nil {
+		s.reportDone = true
+	}
 	return s
 }
 
