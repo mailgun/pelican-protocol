@@ -163,7 +163,7 @@ func (s *Chaser) Start() {
 	s.startAlpha()
 	s.startBeta()
 	s.rw.Start()
-	fmt.Printf("\n\n Chaser started: %p \n\n", s)
+	fmt.Printf("\n\n Chaser started: %p for conn from '%s'\n\n", s, s.rw.conn.RemoteAddr())
 	po("\n\n for Chaser %p we have rw=%p   with reader = %p  writer = %p\n\n", s, s.rw, s.rw.r, s.rw.w)
 }
 

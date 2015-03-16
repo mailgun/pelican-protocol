@@ -256,7 +256,7 @@ func (s *NetConnReader) Start() {
 			if n64 == 0 {
 				continue
 			}
-			po("NetConnReader %p got buf: '%s', of len n64=%d\n", s, string(buf), n64)
+			po("NetConnReader %p got buf: '%s', of len n64=%d\n", s, string(buf[:n64]), n64)
 
 			buf = buf[:n64]
 

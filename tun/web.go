@@ -158,7 +158,7 @@ func PortIsBound(addr string) bool {
 	if err != nil {
 		return false
 	}
-	VPrintf("PortIsBound opened as client %v -> %v\n", conn.LocalAddr(), conn.RemoteAddr())
+	VPrintf("\n\n PortIsBound opened as client %v -> %v\n\n", conn.LocalAddr(), conn.RemoteAddr())
 	conn.Close()
 	return true
 }

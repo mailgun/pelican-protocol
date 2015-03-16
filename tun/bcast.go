@@ -66,9 +66,10 @@ func (cli *BcastClient) Start() {
 			panic(err)
 		}
 
-		_, err = conn.Write([]byte("hello"))
+		msg := fmt.Sprintf("hello from bcast_client to '%s'", conn.RemoteAddr())
+		_, err = conn.Write([]byte(msg))
 		panicOn(err)
-		po("\n after cli.Start() got to Write to conn.\n")
+		po("\n \n bcast_client:  after cli.Start() got to Write '%s' to conn.\n", msg)
 
 		buf := make([]byte, 100)
 
@@ -78,6 +79,8 @@ func (cli *BcastClient) Start() {
 			isTimeout = false
 			err = conn.SetDeadline(time.Now().Add(time.Millisecond * 100))
 			panicOn(err)
+
+			// Read
 			n, err := conn.Read(buf)
 			if err != nil {
 				if strings.HasSuffix(err.Error(), "i/o timeout") {
@@ -87,15 +90,18 @@ func (cli *BcastClient) Start() {
 					panic(err)
 				}
 			}
+			po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
+
 			if !isTimeout {
 				cli.lastMsg = string(buf[:n])
 				close(cli.MsgRecvd)
-				po("\n after cli.Start() got to Read from conn. n = %d bytes\n", n)
+				po("\n bcast_client: message received!!! after cli.Start() got to Read '%s' from conn. n = %d bytes\n", cli.lastMsg, n)
 			}
 
 			// check for stop requests
 			select {
 			case <-cli.reqStop:
+				po("\n bcast_client: shutting down.\n")
 				conn.Close()
 				close(cli.Done)
 				return
@@ -259,9 +265,10 @@ func (r *BcastServer) Start() error {
 					err = netconn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 					panicOn(err)
 
-					netconn.Read(buf)
-					//n, _ := netconn.Read(buf)
-					//po("reader service routine read buf '%s'\n", string(buf[:n]))
+					n, _ := netconn.Read(buf)
+					if n > 0 {
+						po("bcast_server: reader service routine read buf '%s'\n", string(buf[:n]))
+					}
 				}
 			}(conn)
 
@@ -281,7 +288,10 @@ func (r *BcastServer) Bcast(msg string) {
 	po("\n\n  BcastServer::Bcast() called with msg = '%s'\n\n", msg)
 
 	by := []byte(msg)
+	i := 0
 	for _, conn := range r.waiting {
+		po("\n\n  BcastServer::Bcast() sending to conn %d = '%s'\n\n", i, conn.RemoteAddr())
+		i++
 		n, err := conn.Write(by)
 		if n != len(by) {
 			panic(fmt.Errorf("could not write everything to conn '%#v'; only %d out of %d", conn, n, len(by)))

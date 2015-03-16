@@ -6,6 +6,8 @@ Pelicans are ferocious eaters of fish. According to wikipedia, in ancient Egypt 
 
 The Pelican Protocol provides a means of devouring phishing attempts. 
 
+TLS is not enough. It is time to experiment with security stronger than TLS.
+
 Advantages for website developers and operators
 ------------------------------------------------
 
