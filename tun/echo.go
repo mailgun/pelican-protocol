@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,12 +16,13 @@ type EchoServer struct {
 	Listen Addr
 
 	Ready   chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 
 	lsn net.Listener
 
 	FirstClient chan bool
+	mut         sync.Mutex
 }
 
 func NewEchoServer(a Addr) *EchoServer {
@@ -35,7 +37,7 @@ func NewEchoServer(a Addr) *EchoServer {
 	r := &EchoServer{
 		Listen:      a,
 		Ready:       make(chan bool),
-		ReqStop:     make(chan bool),
+		reqStop:     make(chan bool),
 		Done:        make(chan bool),
 		FirstClient: make(chan bool),
 	}
@@ -133,7 +135,7 @@ func (r *EchoServer) Nonecho(msg string) {
 
 func (r *EchoServer) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -141,10 +143,23 @@ func (r *EchoServer) IsStopRequested() bool {
 }
 
 func (r *EchoServer) Stop() {
-	if r.IsStopRequested() {
-		return
-	}
-	close(r.ReqStop)
+	r.RequestStop()
 	r.lsn.Close()
 	<-r.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *EchoServer) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }

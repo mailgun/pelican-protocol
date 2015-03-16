@@ -2,20 +2,22 @@ package pelicantun
 
 import (
 	"io"
+	"sync"
 
 	"github.com/glycerine/rbuf"
 )
 
 // Shovel shovels data from an io.ReadCloser to an io.WriteCloser
 // in an independent go routine started by Shovel::Start().
-// You can request that the shovel stop by closing ReqStop,
+// You can request that the shovel stop by calling RequestStop()
 // and wait until Done is closed to know that it is finished.
 type Shovel struct {
 	Done    chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	Ready   chan bool
 
 	rbuf *rbuf.FixedSizeRingBuf
+	mut  sync.Mutex
 }
 
 // Internally buffer ShovelInternalBufSize bytes. Currently we
@@ -26,7 +28,7 @@ const ShovelInternalBufSize = 256 << 10
 func NewShovel() *Shovel {
 	return &Shovel{
 		Done:    make(chan bool),
-		ReqStop: make(chan bool),
+		reqStop: make(chan bool),
 		Ready:   make(chan bool),
 		rbuf:    rbuf.NewFixedSizeRingBuf(ShovelInternalBufSize),
 	}
@@ -69,7 +71,7 @@ func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser, label string) {
 
 	}()
 	go func() {
-		<-s.ReqStop
+		<-s.reqStop
 		r.Close() // causes io.Copy to finish
 		w.Close()
 	}()
@@ -77,13 +79,24 @@ func (s *Shovel) Start(w io.WriteCloser, r io.ReadCloser, label string) {
 
 // stop the shovel goroutine. returns only once the goroutine is done.
 func (s *Shovel) Stop() {
-	// avoid double closing ReqStop here
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
+	s.RequestStop()
 	<-s.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *Shovel) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 // a ShovelPair manages the forwarding of a bidirectional
@@ -92,8 +105,9 @@ type ShovelPair struct {
 	AB      *Shovel
 	BA      *Shovel
 	Done    chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	Ready   chan bool
+	mut     sync.Mutex
 }
 
 // make a new ShovelPair
@@ -102,7 +116,7 @@ func NewShovelPair() *ShovelPair {
 		AB:      NewShovel(),
 		BA:      NewShovel(),
 		Done:    make(chan bool),
-		ReqStop: make(chan bool),
+		reqStop: make(chan bool),
 		Ready:   make(chan bool),
 	}
 }
@@ -123,6 +137,9 @@ func (s *ShovelPair) Start(a io.ReadWriteCloser, b io.ReadWriteCloser, ab_label 
 			s.BA.Stop()
 		case <-s.BA.Done:
 			s.AB.Stop()
+		case <-s.reqStop:
+			s.AB.Stop()
+			s.BA.Stop()
 		}
 	}()
 }
@@ -130,4 +147,20 @@ func (s *ShovelPair) Start(a io.ReadWriteCloser, b io.ReadWriteCloser, ab_label 
 func (s *ShovelPair) Stop() {
 	s.AB.Stop()
 	s.BA.Stop()
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *ShovelPair) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,11 +18,13 @@ type BcastClient struct {
 	Dest Addr
 
 	Ready   chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 
 	MsgRecvd chan bool
 	lastMsg  string
+
+	mut sync.Mutex
 }
 
 func NewBcastClient(dest Addr) *BcastClient {
@@ -38,7 +41,7 @@ func NewBcastClient(dest Addr) *BcastClient {
 		MsgRecvd: make(chan bool),
 		Dest:     dest,
 		Ready:    make(chan bool),
-		ReqStop:  make(chan bool),
+		reqStop:  make(chan bool),
 		Done:     make(chan bool),
 	}
 
@@ -92,7 +95,7 @@ func (cli *BcastClient) Start() {
 
 			// check for stop requests
 			select {
-			case <-cli.ReqStop:
+			case <-cli.reqStop:
 				conn.Close()
 				close(cli.Done)
 				return
@@ -105,7 +108,7 @@ func (cli *BcastClient) Start() {
 
 func (r *BcastClient) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -113,11 +116,24 @@ func (r *BcastClient) IsStopRequested() bool {
 }
 
 func (r *BcastClient) Stop() {
-	if r.IsStopRequested() {
-		return
-	}
-	close(r.ReqStop)
+	r.RequestStop()
 	<-r.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *BcastClient) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 func (cli *BcastClient) Expect(msg string) bool {
@@ -150,13 +166,15 @@ type BcastServer struct {
 	Listen Addr
 
 	Ready   chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 
 	lsn     net.Listener
 	waiting []net.Conn
 
 	FirstClient chan bool
+
+	mut sync.Mutex
 }
 
 func NewBcastServer(a Addr) *BcastServer {
@@ -171,7 +189,7 @@ func NewBcastServer(a Addr) *BcastServer {
 	r := &BcastServer{
 		Listen:      a,
 		Ready:       make(chan bool),
-		ReqStop:     make(chan bool),
+		reqStop:     make(chan bool),
 		Done:        make(chan bool),
 		FirstClient: make(chan bool),
 	}
@@ -275,7 +293,7 @@ func (r *BcastServer) Bcast(msg string) {
 
 func (r *BcastServer) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -283,10 +301,23 @@ func (r *BcastServer) IsStopRequested() bool {
 }
 
 func (r *BcastServer) Stop() {
-	if r.IsStopRequested() {
-		return
-	}
-	close(r.ReqStop)
+	r.RequestStop()
 	r.lsn.Close()
 	<-r.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *BcastServer) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }

@@ -356,7 +356,7 @@ func (f *PelicanSocksProxy) Start() error {
 				//f.redoAlarm()
 
 			case <-f.reqStop:
-				po("client: in <-f.ReqStop, len(chasers) = %d\n", len(f.chasers))
+				po("client: in <-f.reqStop, len(chasers) = %d\n", len(f.chasers))
 				f.Up.Stop()
 
 				// the reader.Stop() will call back in on f.ChaserDoneCh

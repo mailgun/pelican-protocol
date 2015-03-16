@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,7 +34,7 @@ import (
 // -----------------------             -------------------------
 //
 type LongPoller struct {
-	ReqStop           chan bool
+	reqStop           chan bool
 	Done              chan bool
 	ClientPacketRecvd chan *tunnelPacket
 
@@ -47,6 +48,8 @@ type LongPoller struct {
 	key string
 
 	Dest Addr
+
+	mut sync.Mutex
 }
 
 func NewLongPoller(dest Addr) *LongPoller {
@@ -60,7 +63,7 @@ func NewLongPoller(dest Addr) *LongPoller {
 	dest.SetIpPort()
 
 	s := &LongPoller{
-		ReqStop:           make(chan bool),
+		reqStop:           make(chan bool),
 		Done:              make(chan bool),
 		ClientPacketRecvd: make(chan *tunnelPacket),
 		key:               string(key),
@@ -71,13 +74,24 @@ func NewLongPoller(dest Addr) *LongPoller {
 }
 
 func (s *LongPoller) Stop() {
-	// avoid double closing ReqStop here
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
+	s.RequestStop()
 	<-s.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *LongPoller) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 func (s *LongPoller) finish() {
@@ -131,7 +145,7 @@ func (s *LongPoller) Start() error {
 				// server until we have a client packet to reply with.
 				select {
 				case pack = <-s.ClientPacketRecvd:
-				case <-s.ReqStop:
+				case <-s.reqStop:
 					return
 				}
 			}
@@ -164,7 +178,7 @@ func (s *LongPoller) Start() error {
 			longPollTimeUp := time.After(dur)
 
 			select {
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				close(pack.done)
 				pack = nil
 				return

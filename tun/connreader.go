@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -19,12 +20,13 @@ type ConnReader struct {
 	bufsz int
 
 	Ready      chan bool
-	ReqStop    chan bool
+	reqStop    chan bool
 	Done       chan bool
 	key        string
 	notifyDone chan *ConnReader
 	noReport   bool
 	dest       Addr
+	mut        sync.Mutex
 }
 
 func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnReader, dest Addr) *ConnReader {
@@ -32,7 +34,7 @@ func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnRe
 		conn:       conn,
 		bufsz:      bufsz,
 		Ready:      make(chan bool),
-		ReqStop:    make(chan bool),
+		reqStop:    make(chan bool),
 		Done:       make(chan bool),
 		key:        key,
 		notifyDone: notifyDone,
@@ -43,7 +45,7 @@ func NewConnReader(conn net.Conn, bufsz int, key string, notifyDone chan *ConnRe
 
 func (r *ConnReader) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -55,7 +57,7 @@ func (r *ConnReader) Stop() {
 	if r.IsStopRequested() {
 		return
 	}
-	close(r.ReqStop)
+	close(r.reqStop)
 	<-r.Done
 }
 
@@ -92,9 +94,7 @@ func (r *ConnReader) Start() {
 			if err != nil {
 				//fmt.Printf("\n debug: ConnReader got error '%s' reading from r.reader. Shutting down.\n", err)
 				// typical: "debug: ConnReader got error 'EOF' reading from r.reader. Shutting down."
-				if !r.IsStopRequested() {
-					close(r.ReqStop)
-				}
+				r.RequestStop()
 				return
 			}
 
@@ -156,4 +156,20 @@ func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer)
 	_, err = reader.conn.Write(body)
 	panicOn(err)
 	return nil
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *ConnReader) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
