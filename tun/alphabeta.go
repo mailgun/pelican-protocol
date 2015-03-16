@@ -53,6 +53,8 @@ func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, de
 
 	rw := NewRW(conn, bufsz, rwReaderDone, rwWriterDone)
 
+	po("\n\n Chaser gets NewRW() = %p with %p NetConnReader and %p NetConnWriter\n\n", rw, rw.r, rw.w)
+
 	s := &Chaser{
 		rw:           rw,
 		rwReaderDone: rwReaderDone,
@@ -125,6 +127,9 @@ func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, de
 // goroutines respectively, and the three communicate
 // over the channels held in Chaser and Home.
 //
+// See also the diagram in tunnel.go in front of
+// the LongPoller struct description.
+//
 type Chaser struct {
 	reqStop chan bool
 	Done    chan bool
@@ -147,6 +152,7 @@ type Chaser struct {
 	key  string
 	dest Addr
 
+	// this rw maintains the net.Conn to the upstream client
 	rw           *RW
 	rwReaderDone chan *NetConnReader
 	rwWriterDone chan *NetConnWriter

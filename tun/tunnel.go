@@ -25,18 +25,21 @@ import (
 // http request flow (client initiating direction), http replies
 // flow in the opposite direction of the arrows below.
 //
-//       web-browser                           web-server
-//           |                                    ^
-//           v                                    |
+//        "upstream"                               "downstream"
+//           V                                         ^
+//     e.g. web-browser                          e.g. web-server
+//           |                                         ^
+//           v                                         |
 // -----------------------             -------------------------
-// |         |           |             |          ^            |
-// |         v           |             |          |            |
-// | TcpUpstreamReceiver |             |         RW            |
-// |      |              |             |          ^            |
-// |      v              |    http     |          |            |
-// |   Chaser ---> RW -> |------------>|---> (LongPoller)      |
+// | TcpUpstreamReceiver |             |  net.Conn TCP connect |
+// |    |                |             |               ^       |
+// |    v                |             |              RW       |
+// |    RW               |             |               ^       |
+// |    v                |    http     |               |       |
+// | Chaser->alpha/beta->|------------>|WebServer--> LongPoller|
 // -----------------------             -------------------------
 //   pelican-socks-proxy                 pelican-reverse-proxy
+//
 //
 type LongPoller struct {
 	reqStop           chan bool

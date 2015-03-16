@@ -69,7 +69,7 @@ func (cli *BcastClient) Start() {
 		msg := fmt.Sprintf("hello from bcast_client to '%s'", conn.RemoteAddr())
 		_, err = conn.Write([]byte(msg))
 		panicOn(err)
-		po("\n \n bcast_client:  after cli.Start() got to Write '%s' to conn.\n", msg)
+		po("\n \n bcast_client:  after cli.Start() got to Write '%s' to conn %v -> %v.\n", msg, conn.LocalAddr(), conn.RemoteAddr())
 
 		buf := make([]byte, 100)
 
