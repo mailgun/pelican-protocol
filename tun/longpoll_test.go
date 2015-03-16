@@ -44,7 +44,6 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	//	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }
-*/
 
 /*
 func TestLongPollKeepsFifoOrdering016(t *testing.T) {
@@ -88,4 +87,5 @@ func TestLongPollKeepsFifoOrdering016(t *testing.T) {
 
 	//	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }
+
 */

@@ -38,7 +38,7 @@ func example_main() {
 func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, dest Addr) *Chaser {
 
 	if key == "" || len(key) != KeyLen {
-		panic(fmt.Errorf("sendThenRecv error: key '%s' was not of expected length %d", key, KeyLen))
+		panic(fmt.Errorf("NewChaser() error: key '%s' was not of expected length %d. instead: %d", key, KeyLen, len(key)))
 	}
 
 	if dest.IpPort == "" {
