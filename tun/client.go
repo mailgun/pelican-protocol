@@ -32,7 +32,7 @@ type PelicanSocksProxy struct {
 
 	testonly_dont_contact_downstream bool
 
-	chaser *Chaser // managers our http connections; see alphabeta.go
+	chaser *Chaser // manages our http connections to the reverse proxy; see alphabeta.go
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
@@ -103,7 +103,7 @@ func (f *PelicanSocksProxy) WaitForClientCount(target int, maxElap time.Duration
 	t0 := time.Now()
 
 	for {
-		c = f.OpenClientCount()
+		c = f.CountOfOpenClients()
 		trycount++
 		if c == target {
 			return nil
@@ -116,8 +116,8 @@ func (f *PelicanSocksProxy) WaitForClientCount(target int, maxElap time.Duration
 	}
 }
 
-// OpenClientCount returns -1 if PSP is shutting down.
-func (f *PelicanSocksProxy) OpenClientCount() int {
+// CountOfOpenClients returns -1 if PSP is shutting down.
+func (f *PelicanSocksProxy) CountOfOpenClients() int {
 	select {
 	case count := <-f.OpenClientReq:
 		return count
@@ -283,7 +283,7 @@ func (f *PelicanSocksProxy) Start() error {
 				// nothing more, just send when requested
 
 			case upConn = <-f.Up.UpstreamTcpConnChan:
-				po("client/PSP: Start(): handling upConn = <-f.Up.UpstreamTcpConnChan.\n")
+				po("client/PSP: Start(): handling upConn = <-f.Up.UpstreamTcpConnChan.  len(f.chasers) == openClientReq = %d\n", len(f.chasers))
 				f.lastRemote = upConn.RemoteAddr()
 
 				var err error
@@ -306,18 +306,20 @@ func (f *PelicanSocksProxy) Start() error {
 					}
 				}
 
+				VPrintf("in case upConn = <-f.Up.UpstreamTcpConnChan,  %v -> %v\n", upConn.RemoteAddr(), upConn.LocalAddr())
+
 				chaser := NewChaser(upConn, bufSize, key, f.ChaserDoneCh, f.Cfg.Dest)
 				chaser.Start()
 				f.chasers[chaser] = true
-				po("after add, len(chasers) = %d\n", len(f.chasers))
+				po("after add new chaser %p, len(chasers) = %d\n", chaser, len(f.chasers))
 
-			case doneReader := <-f.ChaserDoneCh:
-				//po("doneReader received on channel, len(chasers) = %d\n", len(f.chasers))
-				if !f.chasers[doneReader] {
-					panic(fmt.Sprintf("doneReader %p not found in f.chasers = '%#v'", doneReader, f.chasers))
+			case thisChaserIsDone := <-f.ChaserDoneCh:
+				po("thisChaserIsDone %p received on channel, len(chasers) = %d\n", thisChaserIsDone, len(f.chasers))
+				if !f.chasers[thisChaserIsDone] {
+					panic(fmt.Sprintf("thisChaserIsDone %p not found in f.chasers = '%#v'", thisChaserIsDone, f.chasers))
 				}
-				delete(f.chasers, doneReader)
-				//po("after delete, len(chasers) = %d\n", len(f.chasers))
+				delete(f.chasers, thisChaserIsDone)
+				fmt.Printf("\n\nchaser stopped and deleted: %p. after delete, len(chasers) = %d\n", thisChaserIsDone, len(f.chasers))
 
 				//f.redoAlarm()
 
@@ -339,7 +341,9 @@ func (f *PelicanSocksProxy) Start() error {
 		}
 	}()
 
+	po("\n about to call WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
 	WaitUntilServerUp(f.Cfg.Listen.IpPort)
+	po("\n after call to WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
 
 	return nil
 }

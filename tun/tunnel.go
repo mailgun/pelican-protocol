@@ -141,7 +141,7 @@ func (s *LongPoller) Start() error {
 				panic("pack should never nil at this point")
 			}
 
-			//po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
+			po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
 			// read from the request body and write to the ResponseWriter
 
 			wait := 10 * time.Second
@@ -170,6 +170,8 @@ func (s *LongPoller) Start() error {
 				return
 
 			case b500 := <-s.rw.RecvFromDownCh():
+				po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
+
 				n64 += int64(len(b500))
 				_, err := pack.resp.Write(b500)
 				if err != nil {
@@ -184,11 +186,13 @@ func (s *LongPoller) Start() error {
 				pack = nil
 
 			case <-longPollTimeUp:
+				po("tunnel.go: longPollTimeUp!!\n")
 				// send it along its way anyhow
 				close(pack.done)
 				pack = nil
 
 			case newpacket := <-s.ClientPacketRecvd:
+				po("tunnel.go: <-s.ClientPakcetRecvd!!: %#v\n", newpacket)
 				s.recvCount++
 				// finish previous packet without data, because client sent another packet
 				close(pack.done)

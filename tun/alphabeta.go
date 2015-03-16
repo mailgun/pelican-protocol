@@ -151,7 +151,7 @@ func (s *Chaser) Start() {
 	s.startAlpha()
 	s.startBeta()
 	s.rw.Start()
-	fmt.Printf("\n\n Chaser %p started.\n", s)
+	fmt.Printf("\n\n Chaser started: %p \n\n", s)
 }
 
 // Stops without reporting anything on the
@@ -174,18 +174,24 @@ func (s *Chaser) Stop() {
 	<-s.betaDone
 	s.home.Stop()
 
-	if !s.skipNotify {
-		select {
-		case s.notifyDone <- s:
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
 	s.rw.Stop()
 	close(s.Done)
 }
 
 func (s *Chaser) startAlpha() {
 	go func() {
+		// so we don't notify twice, make alpha alone responsible
+		// for reporting on s.notifyDone.
+		defer func() {
+			if !s.skipNotify {
+				//select {
+				s.notifyDone <- s
+				po("Alpha shutting down: Chaser.Stop() sent on s.notifyDone\n")
+				//case <-time.After(10 * time.Millisecond):
+				//}
+			}
+		}()
+
 		defer func() { close(s.alphaDone) }()
 		var work []byte
 		var goNow bool
@@ -202,12 +208,16 @@ func (s *Chaser) startAlpha() {
 				// only I am home, so wait for an event.
 				select {
 				case work = <-s.incoming:
+					po("alpha got work on s.incoming: '%s'.\n", string(work))
+
 				// launch with the data in work
 				case <-s.ReqStop:
 					return
 				case <-s.betaDone:
 					return
 				case <-s.home.tellAlphaToGo:
+					po("alpha got s.home.tellAlphaToGo.\n")
+
 					// we can launch without data, but
 					// make sure there isn't some data waiting,
 					// check again just so the random
@@ -233,6 +243,7 @@ func (s *Chaser) startAlpha() {
 				po("alpha aborting on error from DoRequestResponse: '%s'", err)
 				return
 			}
+			po("alpha DoRequestResponse done work:'%s' -> '%s'.\n", string(work), string(replyBytes))
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
@@ -267,12 +278,15 @@ func (s *Chaser) startBeta() {
 
 				select {
 				case work = <-s.incoming:
+					po("beta got work on s.incoming '%s'.\n", string(work))
 					// launch with the data in work
 				case <-s.ReqStop:
 					return
 				case <-s.alphaDone:
 					return
 				case <-s.home.tellBetaToGo:
+					po("beta got s.home.tellBetaToGo.\n")
+
 					// we can launch without data, but
 					// make sure there isn't some data waiting,
 					// check again just so the random
@@ -298,6 +312,7 @@ func (s *Chaser) startBeta() {
 				po("beta aborting on error from DoRequestResponse: '%s'", err)
 				return
 			}
+			po("beta DoRequestResponse done.\n")
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
@@ -405,7 +420,7 @@ func (s *Home) Stop() {
 }
 
 func (s *Home) String() string {
-	return fmt.Sprintf("home:{alphaHome: %v, betaHome: %v}", s.alphaHome, s.betaHome)
+	return fmt.Sprintf("home:{alphaHome: %v, betaHome: %v} / ptr=%p", s.alphaHome, s.betaHome, s)
 }
 
 func (s *Home) Start() {
@@ -427,7 +442,7 @@ func (s *Home) Start() {
 
 				s.alphaHome = true
 
-				//VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Alpha
 				if s.betaHome {
@@ -437,7 +452,7 @@ func (s *Home) Start() {
 					}
 				}
 				s.update()
-				//VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
 				// for latency study
@@ -448,7 +463,7 @@ func (s *Home) Start() {
 					s.localReqArrTm = 0
 				}
 				s.betaHome = true
-				//VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Beta
 				if s.alphaHome {
@@ -458,17 +473,17 @@ func (s *Home) Start() {
 					}
 				}
 				s.update()
-				//VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.alphaDepartsHome:
 				s.alphaHome = false
 				s.update()
-				//VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
+				VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
 
 			case <-s.betaDepartsHome:
 				s.betaHome = false
 				s.update()
-				//VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
+				VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
 
 			case s.shouldAlphaGoNow <- s.shouldAlphaGoCached:
 
@@ -529,16 +544,18 @@ func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
 	//modeled after: func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer) error {
 	// write buf to new http request, starting with key
 
-	//po("\n\n debug: sendThenRecv called with dest: '%#v', key: '%s', and buf: '%s'\n", dest, key, string(buf.Bytes()))
+	//po("\n\n debug: DoRequestRespnose called with dest: '%#v', key: '%s', and work: '%s'\n", s.dest, s.key, string(work))
 
 	// assemble key + work into request
 	req := bytes.NewBuffer([]byte(s.key))
 	req.Write(work) // add work after key
 
+	po("in DoRequestResponse just before Post\n")
 	resp, err := http.Post(
 		"http://"+s.dest.IpPort+"/",
 		"application/octet-stream",
 		req)
+	po("in DoRequestResponse just after Post\n")
 
 	defer func() {
 		if resp != nil && resp.Body != nil {

@@ -206,7 +206,7 @@ func (s *NetConnReader) finish() {
 	default:
 		close(s.ReqStop)
 	}
-	close(s.dnReadToUpWrite)
+	// if clients cached this, problem b/c they'll get lots of spurious receives: close(s.dnReadToUpWrite)
 	s.dnReadToUpWrite = nil
 
 	if s.reportDone && s.notifyDoneCh != nil {
@@ -251,6 +251,7 @@ func (s *NetConnReader) Start() {
 			if n64 == 0 {
 				continue
 			}
+			po("NetConnReader got buf: '%s', of len n64=%d\n", string(buf), n64)
 
 			buf = buf[:n64]
 
@@ -374,7 +375,7 @@ func (s *NetConnWriter) finish() {
 	default:
 		close(s.ReqStop)
 	}
-	close(s.upReadToDnWrite)
+	//close(s.upReadToDnWrite)
 	s.upReadToDnWrite = nil
 
 	if s.reportDone && s.notifyDoneCh != nil {
