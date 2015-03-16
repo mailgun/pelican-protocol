@@ -3,6 +3,7 @@ package pelicantun
 import (
 	"crypto/rand"
 	"fmt"
+	"strings"
 )
 
 const KeyLen = 149
@@ -26,7 +27,11 @@ func GenPelicanKey() []byte {
 
 	hmac := Sha256HMAC(key[:randByteCount], key[randByteCount:2*randByteCount])
 
-	//fmt.Printf("in GenPelicanKey, hmac = '%x'\n", hmac)
+	if len(hmac) != 32 {
+		panic(fmt.Sprintf("expect Sha256HMAC() to return 32 bytes, but got %d instead.", len(hmac)))
+	}
+
+	//fmt.Printf("in GenPelicanKey, hmac = '%x' with len: %d\n", hmac, len(hmac))
 
 	signed_key := make([]byte, len(key)+len(hmac))
 	//fmt.Printf("\n\n GenPelicanKey, signed_key is len %d\n", len(signed_key))
@@ -42,7 +47,9 @@ func GenPelicanKey() []byte {
 		panic(fmt.Sprintf("key too long: %d but expected", sz, KeyLen))
 	}
 	if sz < KeyLen {
-		panic(fmt.Sprintf("key too short: %d but expected", sz, KeyLen))
+		// key is too short because the bignum was too small; prepend with zeros
+		// to get an accurate representation out to KeyLen.
+		alpha_signed_key = append([]byte(strings.Repeat("0", KeyLen-sz)), alpha_signed_key...)
 	}
 
 	if !IsLegitPelicanKey(alpha_signed_key) {
@@ -54,9 +61,13 @@ func GenPelicanKey() []byte {
 }
 
 func IsLegitPelicanKey(alpha_signed_key []byte) bool {
+	if len(alpha_signed_key) != KeyLen {
+		return false
+	}
 	_, signed_key, err := Base36toBigInt(alpha_signed_key)
 	if err != nil {
-		// TODO: no longer constant time with early return. Side channel vuln.
+		// TODO: no longer constant time with early return. Side channel attack vulnerable.
+		// not that this is a secure id anyway, so for now ignore.
 		return false
 	}
 
