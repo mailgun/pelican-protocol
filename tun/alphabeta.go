@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -47,17 +48,22 @@ func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, de
 		panic(fmt.Errorf("dest.Port was 0"))
 	}
 
-	rw := NewRW(conn, bufsz, nil, nil)
+	rwReaderDone := make(chan *NetConnReader)
+	rwWriterDone := make(chan *NetConnWriter)
+
+	rw := NewRW(conn, bufsz, rwReaderDone, rwWriterDone)
 
 	s := &Chaser{
-		rw: rw,
+		rw:           rw,
+		rwReaderDone: rwReaderDone,
+		rwWriterDone: rwWriterDone,
 
-		ReqStop: make(chan bool),
+		reqStop: make(chan bool),
 		Done:    make(chan bool),
 
-		alphaDone: make(chan bool),
-		betaDone:  make(chan bool),
-
+		alphaDone:   make(chan bool),
+		betaDone:    make(chan bool),
+		monitorDone: make(chan bool),
 		incoming:    rw.RecvCh(), // requests to the remote http
 		repliesHere: rw.SendCh(), // replies from remote http are passed upstream here.
 
@@ -120,7 +126,7 @@ func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, de
 // over the channels held in Chaser and Home.
 //
 type Chaser struct {
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 
 	incoming    chan []byte
@@ -131,8 +137,9 @@ type Chaser struct {
 	alphaArrivesHome chan bool
 	betaArrivesHome  chan bool
 
-	alphaDone chan bool
-	betaDone  chan bool
+	alphaDone   chan bool
+	betaDone    chan bool
+	monitorDone chan bool
 
 	closedChan chan bool
 	home       *Home
@@ -140,18 +147,24 @@ type Chaser struct {
 	key  string
 	dest Addr
 
-	rw *RW
+	rw           *RW
+	rwReaderDone chan *NetConnReader
+	rwWriterDone chan *NetConnWriter
 
 	notifyDone chan *Chaser
 	skipNotify bool
+
+	mut sync.Mutex
 }
 
 func (s *Chaser) Start() {
 	s.home.Start()
+	s.startMonitor()
 	s.startAlpha()
 	s.startBeta()
 	s.rw.Start()
 	fmt.Printf("\n\n Chaser started: %p \n\n", s)
+	po("\n\n for Chaser %p we have rw=%p   with reader = %p  writer = %p\n\n", s, s.rw, s.rw.r, s.rw.w)
 }
 
 // Stops without reporting anything on the
@@ -165,17 +178,56 @@ func (s *Chaser) StopWithoutReporting() {
 func (s *Chaser) Stop() {
 	fmt.Printf("\n\n Chaser %p stopping.\n", s)
 
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
-	<-s.alphaDone
-	<-s.betaDone
-	s.home.Stop()
+	s.RequestStop()
 
 	s.rw.Stop()
+
+	<-s.alphaDone
+	<-s.betaDone
+	<-s.monitorDone
+	s.home.Stop()
+
+	po("Chaser %p all done.\n", s)
 	close(s.Done)
+}
+
+// monitor rw for shutdown
+func (s *Chaser) startMonitor() {
+	go func() {
+		defer close(s.monitorDone)
+		for {
+			select {
+
+			case <-s.reqStop:
+				s.rw.StopWithoutNotify()
+				return
+			case <-s.rwReaderDone:
+				s.rw.StopWithoutNotify()
+				s.RequestStop()
+				return
+			case <-s.rwWriterDone:
+				s.rw.StopWithoutNotify()
+				s.RequestStop()
+				return
+			}
+		}
+	}()
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *Chaser) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 func (s *Chaser) startAlpha() {
@@ -200,7 +252,7 @@ func (s *Chaser) startAlpha() {
 
 			select {
 			case goNow = <-s.home.shouldAlphaGoNow:
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				return
 			}
 			if !goNow {
@@ -211,7 +263,7 @@ func (s *Chaser) startAlpha() {
 					po("alpha got work on s.incoming: '%s'.\n", string(work))
 
 				// launch with the data in work
-				case <-s.ReqStop:
+				case <-s.reqStop:
 					return
 				case <-s.betaDone:
 					return
@@ -251,7 +303,7 @@ func (s *Chaser) startAlpha() {
 			// deliver any response data (body) to our client
 			select {
 			case s.repliesHere <- replyBytes:
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				return
 			}
 		}
@@ -270,17 +322,18 @@ func (s *Chaser) startBeta() {
 
 			select {
 			case goNow = <-s.home.shouldBetaGoNow:
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				return
 			}
 
 			if !goNow {
 
 				select {
+
 				case work = <-s.incoming:
 					po("beta got work on s.incoming '%s'.\n", string(work))
 					// launch with the data in work
-				case <-s.ReqStop:
+				case <-s.reqStop:
 					return
 				case <-s.alphaDone:
 					return
@@ -320,7 +373,7 @@ func (s *Chaser) startBeta() {
 			// deliver any response data (body) to our client
 			select {
 			case s.repliesHere <- replyBytes:
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				return
 			}
 
@@ -340,7 +393,7 @@ const Beta who = 2
 const Both who = 3
 
 type Home struct {
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 
 	IsAlphaHome chan bool
@@ -377,12 +430,13 @@ type Home struct {
 
 	localReqArrTm  int64
 	latencyHistory []int64
+	mut            sync.Mutex
 }
 
 func NewHome() *Home {
 
 	s := &Home{
-		ReqStop: make(chan bool),
+		reqStop: make(chan bool),
 		Done:    make(chan bool),
 
 		IsAlphaHome: make(chan bool),
@@ -415,8 +469,24 @@ func NewHome() *Home {
 }
 
 func (s *Home) Stop() {
-	close(s.ReqStop)
+	s.RequestStop()
 	<-s.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *Home) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 func (s *Home) String() string {
@@ -489,7 +559,7 @@ func (s *Home) Start() {
 
 			case s.shouldBetaGoNow <- s.shouldBetaGoCached:
 
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				close(s.Done)
 				return
 

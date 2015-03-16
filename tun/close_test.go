@@ -23,6 +23,7 @@ func TestPelicanSocksProxyHandlesClientConnectionClose008(t *testing.T) {
 
 	cv.Convey("Given a started PelicanSocksProxy, we should handle Close of the socket after Accept gracefully\n", t, func() {
 
+		po("\n\n at the start of the close_test, we should not have any clients registered, right??: %d\n\n", len(fwd.chasers))
 		err := fwd.WaitForClientCount(0, time.Second*2)
 		cv.So(err, cv.ShouldEqual, nil)
 

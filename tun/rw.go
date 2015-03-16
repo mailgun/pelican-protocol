@@ -3,6 +3,7 @@ package pelicantun
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -132,7 +133,7 @@ func IsTimeout(err error) bool {
 // only in the reverse proxy context.
 //
 type NetConnReader struct {
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 	Ready   chan bool
 	LastErr error
@@ -152,6 +153,7 @@ type NetConnReader struct {
 	// over notifyDoneCh, iff reportDone is true.
 	notifyDoneCh chan *NetConnReader
 	reportDone   bool
+	mut          sync.Mutex
 }
 
 // NetConnReaderDefaultBufSizeBytes declares the default read buffer size.
@@ -174,7 +176,7 @@ func NewNetConnReader(
 
 	s := &NetConnReader{
 		Done:            make(chan bool),
-		ReqStop:         make(chan bool),
+		reqStop:         make(chan bool),
 		Ready:           make(chan bool),
 		dnReadToUpWrite: dnReadToUpWrite,
 
@@ -191,7 +193,7 @@ func NewNetConnReader(
 // server.
 func (s *NetConnReader) RecvFromDownCh() chan []byte {
 	select {
-	case <-s.ReqStop:
+	case <-s.reqStop:
 		return nil
 	case <-s.Done:
 		return nil
@@ -201,17 +203,16 @@ func (s *NetConnReader) RecvFromDownCh() chan []byte {
 }
 
 func (s *NetConnReader) finish() {
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
+	s.RequestStop()
+
 	// if clients cached this, problem b/c they'll get lots of spurious receives: close(s.dnReadToUpWrite)
 	s.dnReadToUpWrite = nil
 
 	if s.reportDone && s.notifyDoneCh != nil {
 		s.notifyDoneCh <- s
 	}
+
+	po("rw reader %p got error shut down complete, last error: '%s'\n", s, s.LastErr)
 	close(s.Done)
 }
 
@@ -245,6 +246,7 @@ func (s *NetConnReader) Start() {
 
 			if err != nil {
 				s.LastErr = err
+				po("rw reader %p got error '%s', shutting down\n", s, err)
 				return // shuts us down
 			}
 
@@ -260,7 +262,7 @@ func (s *NetConnReader) Start() {
 			// is full, we will block until the consumer end of this
 			// channel makes progress.
 			case s.dnReadToUpWrite <- buf:
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				// avoid deadlock on shutdown
 				return
 			}
@@ -275,13 +277,24 @@ func (s *NetConnReader) Start() {
 // Stop the NetConnReader goroutine. Start() must have been called
 // first or this will hang your program.
 func (s *NetConnReader) Stop() {
-	// avoid double closing ReqStop here
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
+	s.RequestStop()
 	<-s.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *NetConnReader) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 // Stops the reader and reports a pointer to itself on the notifyDoneCh
@@ -299,7 +312,7 @@ func (s *NetConnReader) StopWithoutNotify() {
 
 func (r *NetConnReader) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -325,7 +338,7 @@ func (r *NetConnReader) IsDone() bool {
 // It represents a goroutine dedicated to reading from UpReadToDnWrite
 // channel and then writing conn.
 type NetConnWriter struct {
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 	Ready   chan bool
 	LastErr error
@@ -338,13 +351,14 @@ type NetConnWriter struct {
 	// over notifyDoneCh, iff reportDone is true.
 	notifyDoneCh chan *NetConnWriter
 	reportDone   bool
+	mut          sync.Mutex
 }
 
 // make a new NetConnWriter
 func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone chan *NetConnWriter) *NetConnWriter {
 	s := &NetConnWriter{
 		Done:            make(chan bool),
-		ReqStop:         make(chan bool),
+		reqStop:         make(chan bool),
 		Ready:           make(chan bool),
 		conn:            netconn,
 		upReadToDnWrite: upReadToDnWrite,
@@ -360,7 +374,7 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone 
 // returns the channel on which to send data to the downstream server.
 func (s *NetConnWriter) SendToDownCh() chan []byte {
 	select {
-	case <-s.ReqStop:
+	case <-s.reqStop:
 		return nil
 	case <-s.Done:
 		return nil
@@ -370,17 +384,16 @@ func (s *NetConnWriter) SendToDownCh() chan []byte {
 }
 
 func (s *NetConnWriter) finish() {
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
-	//close(s.upReadToDnWrite)
+	s.RequestStop()
+
+	//always leave open, don't close: close(s.upReadToDnWrite)
 	s.upReadToDnWrite = nil
 
 	if s.reportDone && s.notifyDoneCh != nil {
 		s.notifyDoneCh <- s
 	}
+
+	po("rw writer %p shut down complete, last error: '%s'\n", s, s.LastErr)
 	close(s.Done)
 }
 
@@ -402,7 +415,7 @@ func (s *NetConnWriter) Start() {
 
 			select {
 			case buf = <-s.upReadToDnWrite:
-			case <-s.ReqStop:
+			case <-s.reqStop:
 				return
 			}
 
@@ -453,18 +466,13 @@ func (s *NetConnWriter) Start() {
 // Stop the NetConnWriter. Start() must have been called first or else
 // you will hang your program waiting for s.Done to be closed.
 func (s *NetConnWriter) Stop() {
-	// avoid double closing ReqStop here
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
+	s.RequestStop()
 	<-s.Done
 }
 
 func (r *NetConnWriter) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -491,4 +499,20 @@ func (s *NetConnWriter) StopAndNotify() {
 func (s *NetConnWriter) StopWithoutNotify() {
 	s.reportDone = false
 	s.Stop()
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *NetConnWriter) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }

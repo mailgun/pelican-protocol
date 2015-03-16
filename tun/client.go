@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,7 +21,7 @@ type PelicanSocksProxyConfig struct {
 type PelicanSocksProxy struct {
 	Cfg     PelicanSocksProxyConfig
 	Ready   chan bool
-	ReqStop chan bool
+	reqStop chan bool
 	Done    chan bool
 
 	Up            *TcpUpstreamReceiver
@@ -33,6 +34,7 @@ type PelicanSocksProxy struct {
 	testonly_dont_contact_downstream bool
 
 	chaser *Chaser // manages our http connections to the reverse proxy; see alphabeta.go
+	mut    sync.Mutex
 }
 
 func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
@@ -40,7 +42,7 @@ func NewPelicanSocksProxy(cfg PelicanSocksProxyConfig) *PelicanSocksProxy {
 	p := &PelicanSocksProxy{
 		Cfg:           cfg,
 		Ready:         make(chan bool),
-		ReqStop:       make(chan bool),
+		reqStop:       make(chan bool),
 		Done:          make(chan bool),
 		chasers:       make(map[*Chaser]bool),
 		LastRemoteReq: make(chan net.Addr),
@@ -74,8 +76,24 @@ func (f *PelicanSocksProxy) SetDefault() {
 	}
 }
 
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *PelicanSocksProxy) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
+}
+
 func (f *PelicanSocksProxy) Stop() {
-	close(f.ReqStop)
+	f.RequestStop()
 	<-f.Done
 	WaitUntilServerDown(f.Cfg.Listen.IpPort)
 	if f.chaser != nil {
@@ -88,7 +106,7 @@ func (f *PelicanSocksProxy) LastRemote() (net.Addr, error) {
 	select {
 	case lastRemote := <-f.LastRemoteReq:
 		return lastRemote, nil
-	case <-f.ReqStop:
+	case <-f.reqStop:
 		return nil, fmt.Errorf("PelicanSocksProxy shutting down.")
 	case <-f.Done:
 		return nil, fmt.Errorf("PelicanSocksProxy shutting down.")
@@ -121,7 +139,7 @@ func (f *PelicanSocksProxy) CountOfOpenClients() int {
 	select {
 	case count := <-f.OpenClientReq:
 		return count
-	case <-f.ReqStop:
+	case <-f.reqStop:
 		return -1
 	case <-f.Done:
 		return -1
@@ -137,10 +155,11 @@ type TcpUpstreamReceiver struct {
 	Listen              Addr
 	UpstreamTcpConnChan chan net.Conn
 	Ready               chan bool
-	ReqStop             chan bool
+	reqStop             chan bool
 	Done                chan bool
 
 	lsn net.Listener
+	mut sync.Mutex
 }
 
 func NewTcpUpstreamReceiver(a Addr) *TcpUpstreamReceiver {
@@ -149,7 +168,7 @@ func NewTcpUpstreamReceiver(a Addr) *TcpUpstreamReceiver {
 		Listen:              a,
 		UpstreamTcpConnChan: make(chan net.Conn),
 		Ready:               make(chan bool),
-		ReqStop:             make(chan bool),
+		reqStop:             make(chan bool),
 		Done:                make(chan bool),
 	}
 	return r
@@ -157,7 +176,7 @@ func NewTcpUpstreamReceiver(a Addr) *TcpUpstreamReceiver {
 
 func (r *TcpUpstreamReceiver) IsStopRequested() bool {
 	select {
-	case <-r.ReqStop:
+	case <-r.reqStop:
 		return true
 	default:
 		return false
@@ -202,8 +221,8 @@ func (r *TcpUpstreamReceiver) Start() error {
 			select {
 			case r.UpstreamTcpConnChan <- conn:
 				po("client TcpUpstreamReceiver::Start(): sent on r.UpstreamTcpConnChan\n")
-			case <-r.ReqStop:
-				po("client TcpUpstreamReceiver::Start(): r.ReqStop received.\n")
+			case <-r.reqStop:
+				po("client TcpUpstreamReceiver::Start(): r.reqStop received.\n")
 				return
 			}
 		}
@@ -212,12 +231,25 @@ func (r *TcpUpstreamReceiver) Start() error {
 }
 
 func (r *TcpUpstreamReceiver) Stop() {
-	if r.IsStopRequested() {
-		return
-	}
-	close(r.ReqStop)
+	r.RequestStop()
 	r.lsn.Close()
 	<-r.Done
+}
+
+// RequestStop makes sure we only close
+// the s.reqStop channel once. Returns
+// true iff we closed s.reqStop on this call.
+func (s *TcpUpstreamReceiver) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	select {
+	case <-s.reqStop:
+		return false
+	default:
+		close(s.reqStop)
+		return true
+	}
 }
 
 func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
@@ -323,7 +355,7 @@ func (f *PelicanSocksProxy) Start() error {
 
 				//f.redoAlarm()
 
-			case <-f.ReqStop:
+			case <-f.reqStop:
 				po("client: in <-f.ReqStop, len(chasers) = %d\n", len(f.chasers))
 				f.Up.Stop()
 
@@ -344,6 +376,5 @@ func (f *PelicanSocksProxy) Start() error {
 	po("\n about to call WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
 	WaitUntilServerUp(f.Cfg.Listen.IpPort)
 	po("\n after call to WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
-
 	return nil
 }
