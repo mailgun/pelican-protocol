@@ -240,7 +240,7 @@ func (s *Chaser) startAlpha() {
 			if !s.skipNotify {
 				//select {
 				s.notifyDone <- s
-				po("Alpha shutting down: Chaser.Stop() sent on s.notifyDone\n")
+				po("%p Alpha shutting down: Chaser.Stop() sent on s.notifyDone\n", s)
 				//case <-time.After(10 * time.Millisecond):
 				//}
 			}
@@ -262,7 +262,7 @@ func (s *Chaser) startAlpha() {
 				// only I am home, so wait for an event.
 				select {
 				case work = <-s.incoming:
-					po("alpha got work on s.incoming: '%s'.\n", string(work))
+					po("%p alpha got work on s.incoming: '%s'.\n", s, string(work))
 
 				// launch with the data in work
 				case <-s.reqStop:
@@ -270,7 +270,7 @@ func (s *Chaser) startAlpha() {
 				case <-s.betaDone:
 					return
 				case <-s.home.tellAlphaToGo:
-					po("alpha got s.home.tellAlphaToGo.\n")
+					po("%p alpha got s.home.tellAlphaToGo.\n", s)
 
 					// we can launch without data, but
 					// make sure there isn't some data waiting,
@@ -298,10 +298,10 @@ func (s *Chaser) startAlpha() {
 
 			replyBytes, err := s.DoRequestRespnose(work)
 			if err != nil {
-				po("alpha aborting on error from DoRequestResponse: '%s'", err)
+				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("alpha DoRequestResponse done work:'%s' -> '%s'.\n", string(work), string(replyBytes))
+			po("%p alpha DoRequestResponse done work:'%s' -> '%s'.\n", s, string(work), string(replyBytes))
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
@@ -337,14 +337,14 @@ func (s *Chaser) startBeta() {
 				select {
 
 				case work = <-s.incoming:
-					po("beta got work on s.incoming '%s'.\n", string(work))
+					po("%p beta got work on s.incoming '%s'.\n", s, string(work))
 					// launch with the data in work
 				case <-s.reqStop:
 					return
 				case <-s.alphaDone:
 					return
 				case <-s.home.tellBetaToGo:
-					po("beta got s.home.tellBetaToGo.\n")
+					po("%p beta got s.home.tellBetaToGo.\n", s)
 
 					// we can launch without data, but
 					// make sure there isn't some data waiting,
@@ -372,10 +372,10 @@ func (s *Chaser) startBeta() {
 
 			replyBytes, err := s.DoRequestRespnose(work)
 			if err != nil {
-				po("beta aborting on error from DoRequestResponse: '%s'", err)
+				po("%p beta aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("beta DoRequestResponse done.\n")
+			po("%p beta DoRequestResponse done.\n", s)
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true

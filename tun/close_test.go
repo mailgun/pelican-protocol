@@ -8,7 +8,7 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 )
 
-func TestPelicanSocksProxyHandlesClientConnectionClose008(t *testing.T) {
+func TestPelicanSocksProxyHandlesClientConnectionClose006(t *testing.T) {
 
 	web, rev, fwd, err := StartTestSystemWithPing()
 	panicOn(err)

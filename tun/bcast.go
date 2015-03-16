@@ -178,7 +178,8 @@ type BcastServer struct {
 	lsn     net.Listener
 	waiting []net.Conn
 
-	FirstClient chan bool
+	FirstClient  chan bool
+	SecondClient chan bool
 
 	mut sync.Mutex
 }
@@ -193,11 +194,12 @@ func NewBcastServer(a Addr) *BcastServer {
 	a.SetIpPort()
 
 	r := &BcastServer{
-		Listen:      a,
-		Ready:       make(chan bool),
-		reqStop:     make(chan bool),
-		Done:        make(chan bool),
-		FirstClient: make(chan bool),
+		Listen:       a,
+		Ready:        make(chan bool),
+		reqStop:      make(chan bool),
+		Done:         make(chan bool),
+		FirstClient:  make(chan bool),
+		SecondClient: make(chan bool),
 	}
 	return r
 }
@@ -245,11 +247,22 @@ func (r *BcastServer) Start() error {
 
 			r.waiting = append(r.waiting, conn)
 
-			// close FirstClient only once
-			select {
-			case <-r.FirstClient:
-			default:
-				close(r.FirstClient)
+			// close FirstClient only once: the WaitUntilServerIsUp confirmation client.
+			if len(r.waiting) == 1 {
+				select {
+				case <-r.FirstClient:
+				default:
+					close(r.FirstClient)
+				}
+			}
+
+			// close SecondClient only once: the actual test client.
+			if len(r.waiting) == 2 {
+				select {
+				case <-r.SecondClient:
+				default:
+					close(r.SecondClient)
+				}
 			}
 
 			po("server BcastServer::Start(): accepted '%v' -> '%v' local. len(r.waiting) = %d now.\n", conn.RemoteAddr(), conn.LocalAddr(), len(r.waiting))

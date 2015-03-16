@@ -16,7 +16,7 @@ import (
 //                   RW
 //
 // ===========================================
-
+//
 // RW packages up a reader and a writer for a specific
 // net.Conn connection along with a copy of that net connection.
 //
@@ -113,10 +113,10 @@ func IsTimeout(err error) bool {
 
 // ===========================================
 //
-// ============== NetConnReader ==============
+//              NetConnReader
 //
 // ===========================================
-
+//
 // NetConnReader and NetConnWriter work as a pair to
 // move data from a net.Conn into go channels. Each
 // maintains its own independent goroutine.
@@ -333,10 +333,10 @@ func (r *NetConnReader) IsDone() bool {
 
 // ===========================================
 //
-// ============== NetConnWriter ==============
+//                NetConnWriter
 //
 // ===========================================
-
+//
 // NetConnWriter is the downstream most writer in the reverse proxy.
 // It represents a goroutine dedicated to reading from UpReadToDnWrite
 // channel and then writing conn.
