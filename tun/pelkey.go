@@ -45,6 +45,10 @@ func GenPelicanKey() []byte {
 		panic(fmt.Sprintf("key too short: %d but expected", sz, KeyLen))
 	}
 
+	if !IsLegitPelicanKey(alpha_signed_key) {
+		panic("alpha_signed_key not passing the IsLegitPelicanKey() test")
+	}
+
 	//fmt.Printf("\n\n GenPelicanKey, alpha_signed_key is len %d\n", len(alpha_signed_key))
 	return alpha_signed_key
 }
