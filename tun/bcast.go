@@ -93,7 +93,7 @@ func (cli *BcastClient) Start() {
 					panic(err) // client gets 'EOF' when server closes the connection. '&errors.errorString{s:"EOF"}'
 				}
 			}
-			po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
+			//po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
 
 			if !isTimeout {
 				cli.lastMsg = string(buf[:n])
@@ -292,7 +292,7 @@ func (r *BcastServer) Start() error {
 					}
 					if err != nil {
 						// err.Error() == "EOF" when client closes connection.
-						fmt.Printf("BcastServer got error on Read(): err = '%s'\n", err)
+						//	fmt.Printf("BcastServer got error on Read(): err = '%s'\n", err)
 					}
 
 				}
