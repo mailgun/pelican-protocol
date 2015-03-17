@@ -1,7 +1,6 @@
 package pelicantun
 
 import (
-	"fmt"
 	"testing"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -35,5 +34,4 @@ func TestTcpClientAndServerCanTalkDirectly012(t *testing.T) {
 		cv.So(found, cv.ShouldEqual, true)
 	})
 
-	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }

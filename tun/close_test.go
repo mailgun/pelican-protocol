@@ -8,6 +8,25 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 )
 
+func Test_RW_EOF_on_reader_does_not_close_writer_0061(t *testing.T) {
+	/*
+		web, rev, fwd, err := StartTestSystemWithPing()
+		panicOn(err)
+		defer web.Stop()
+		defer rev.Stop()
+		defer fwd.Stop()
+
+		conn, err := net.Dial("tcp", fwd.Cfg.Listen.IpPort)
+		if err != nil {
+			panic(err)
+		}
+	*/
+	cv.Convey("given an operating tunnel from cli -> fwd -> rev -> srv, we should close the fwd and rev net.Conn only once we've gotten EOF on both the read from the srv and the read from the cli", t, func() {
+
+	})
+
+}
+
 func TestPelicanSocksProxyHandlesClientConnectionClose006(t *testing.T) {
 
 	web, rev, fwd, err := StartTestSystemWithPing()

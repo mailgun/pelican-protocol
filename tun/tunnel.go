@@ -163,7 +163,7 @@ func (s *LongPoller) Start() error {
 				panic("pack should never nil at this point")
 			}
 
-			po("in tunnel::handle(pack) with pack = '%#v'\n", pack)
+			po("in tunnel::handle(pack) with pack.body = '%s'\n", string(pack.body))
 			// read from the request body and write to the ResponseWriter
 
 			wait := 10 * time.Second

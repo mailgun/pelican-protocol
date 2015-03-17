@@ -87,7 +87,10 @@ func (cli *BcastClient) Start() {
 					// okay, ignore
 					isTimeout = true
 				} else {
-					panic(err)
+					if err != nil {
+						fmt.Printf("err = '%#v'/%T\n", err, err) // '&errors.errorString{s:"EOF"}'
+					}
+					panic(err) // client gets 'EOF' when server closes the connection. '&errors.errorString{s:"EOF"}'
 				}
 			}
 			po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
@@ -200,6 +203,7 @@ func NewBcastServer(a Addr) *BcastServer {
 		Done:         make(chan bool),
 		FirstClient:  make(chan bool),
 		SecondClient: make(chan bool),
+		waiting:      make([]net.Conn, 0),
 	}
 	return r
 }
@@ -276,12 +280,21 @@ func (r *BcastServer) Start() error {
 					}
 
 					err = netconn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-					panicOn(err)
+					if err != nil {
+						fmt.Printf("BcastServer got error on SetReadDeadline: err = '%#v'\n", err)
+					}
+					//panicOn(err) // panic: use of closed network connection; &errors.errorString{s:"use of closed network connection"}
+					// don't panic, we may have closed: panicOn(err)
 
-					n, _ := netconn.Read(buf)
+					n, err := netconn.Read(buf)
 					if n > 0 {
 						po("bcast_server: reader service routine read buf '%s'\n", string(buf[:n]))
 					}
+					if err != nil {
+						// err.Error() == "EOF" when client closes connection.
+						fmt.Printf("BcastServer got error on Read(): err = '%s'\n", err)
+					}
+
 				}
 			}(conn)
 
@@ -293,6 +306,20 @@ func (r *BcastServer) Start() error {
 
 	}()
 	return nil
+}
+
+func (r *BcastServer) CloseClientConnections() {
+	po("\n\n  BcastServer::CloseClientConnection() called.\n\n")
+
+	for i, conn := range r.waiting {
+		po("\n\n  BcastServer::Bcast() *closing* conn %d = '%s'\n\n", i, conn.RemoteAddr())
+		i++
+		err := conn.Close()
+		if err != nil {
+			po("conn.Close returned error = '%s'\n", err)
+		}
+	}
+	r.waiting = []net.Conn{}
 }
 
 func (r *BcastServer) Bcast(msg string) {
