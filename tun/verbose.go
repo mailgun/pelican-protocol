@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+var TempDisablePortIsBoundChecks bool = true
+
 // for debug output
 var Verbose bool = true
 

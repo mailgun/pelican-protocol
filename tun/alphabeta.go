@@ -246,7 +246,7 @@ func (s *Chaser) startAlpha() {
 			if !s.skipNotify {
 				//select {
 				s.notifyDone <- s
-				po("%p Alpha shutting down: Chaser.Stop() sent on s.notifyDone\n", s)
+				po("%p Alpha shutting down, after s.notifyDone <- s finished.", s)
 				//case <-time.After(10 * time.Millisecond):
 				//}
 			}
@@ -261,6 +261,7 @@ func (s *Chaser) startAlpha() {
 			select {
 			case goNow = <-s.home.shouldAlphaGoNow:
 			case <-s.reqStop:
+				po("%p Alpha got s.reqStop", s)
 				return
 			}
 			if !goNow {
@@ -272,8 +273,10 @@ func (s *Chaser) startAlpha() {
 
 				// launch with the data in work
 				case <-s.reqStop:
+					po("%p Alpha got s.reqStop", s)
 					return
 				case <-s.betaDone:
+					po("%p Alpha got s.betaDone", s)
 					return
 				case <-s.home.tellAlphaToGo:
 					po("%p alpha got s.home.tellAlphaToGo.\n", s)
@@ -302,6 +305,7 @@ func (s *Chaser) startAlpha() {
 			// request-response cycle here
 			// ================================
 
+			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
 			replyBytes, err := s.DoRequestRespnose(work)
 			if err != nil {
 				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
@@ -316,6 +320,7 @@ func (s *Chaser) startAlpha() {
 			select {
 			case s.repliesHere <- replyBytes:
 			case <-s.reqStop:
+				po("%p Alpha got s.reqStop", s)
 				return
 			}
 		}
@@ -636,7 +641,7 @@ func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
 	req := bytes.NewBuffer([]byte(s.key))
 	req.Write(work) // add work after key
 
-	po("in DoRequestResponse just before Post\n")
+	po("in DoRequestResponse just before Post of work = '%s'\n", string(work))
 	resp, err := http.Post(
 		"http://"+s.dest.IpPort+"/",
 		"application/octet-stream",
@@ -658,7 +663,7 @@ func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
 
 	body, err := ioutil.ReadAll(resp.Body)
 	panicOn(err)
-	//po("client: resp.Body = '%s'\n", string(body))
+	po("client: resp.Body = '%s'\n", string(body))
 
 	return body, err
 }

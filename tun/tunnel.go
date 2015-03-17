@@ -142,6 +142,7 @@ func (s *LongPoller) Start() error {
 		var pack *tunnelPacket
 
 		for {
+			po("at top of LongPoller loop, inside Start()")
 			if pack == nil {
 				// special case of first time through: no client packet has arrived.
 				//

@@ -81,8 +81,10 @@ func StartTestSystemWithBcast() (*BcastClient, *BcastServer, *ReverseProxy, *Pel
 	rev := NewReverseProxy(ReverseProxyConfig{Dest: srv.Listen})
 	rev.Start()
 
-	if !PortIsBound(rev.Cfg.Listen.IpPort) {
-		panic("rev proxy not up")
+	if !TempDisablePortIsBoundChecks {
+		if !PortIsBound(rev.Cfg.Listen.IpPort) {
+			panic("rev proxy not up")
+		}
 	}
 
 	// start the forward proxy, talks to the reverse proxy.
@@ -90,8 +92,11 @@ func StartTestSystemWithBcast() (*BcastClient, *BcastServer, *ReverseProxy, *Pel
 		Dest: rev.Cfg.Listen,
 	})
 	fwd.Start()
-	if !PortIsBound(fwd.Cfg.Listen.IpPort) {
-		panic("fwd proxy not up")
+
+	if !TempDisablePortIsBoundChecks {
+		if !PortIsBound(fwd.Cfg.Listen.IpPort) {
+			panic("fwd proxy not up")
+		}
 	}
 
 	// start broadcast client (to test receipt of long-polled data from server)
