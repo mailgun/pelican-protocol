@@ -152,7 +152,7 @@ func (s *LongPoller) Start() error {
 				//
 				// In either case, we can't grab content from the downstream
 				// server until we have a client packet to reply with.
-				select {
+				select { // 010 is blocked here
 				case pack = <-s.ClientPacketRecvd:
 				case <-s.reqStop:
 					return

@@ -103,7 +103,7 @@ func (s *PelicanSocksProxy) RequestStop() bool {
 
 func (f *PelicanSocksProxy) Stop() {
 	f.RequestStop()
-	<-f.Done
+	<-f.Done // 010 is hanging here, waiting for client to finish shutdown.
 	WaitUntilServerDown(f.Cfg.Listen.IpPort)
 	if f.chaser != nil {
 		// chaser can be nil

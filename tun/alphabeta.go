@@ -82,7 +82,7 @@ type Chaser struct {
 	dest Addr
 
 	// this rw maintains the net.Conn to the upstream client
-	rw           *RW
+	rw           *ClientRW
 	rwReaderDone chan *NetConnReader
 	rwWriterDone chan *NetConnWriter
 
@@ -143,7 +143,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, bufsz int, key string, notifyDon
 	rwReaderDone := make(chan *NetConnReader)
 	rwWriterDone := make(chan *NetConnWriter)
 
-	rw := NewRW(conn, bufsz, rwReaderDone, rwWriterDone)
+	rw := NewClientRW(conn, bufsz, rwReaderDone, rwWriterDone)
 
 	s := &Chaser{
 		rw:           rw,
@@ -204,7 +204,7 @@ func (s *Chaser) Stop() {
 	s.rw.Stop()
 
 	<-s.alphaDone
-	<-s.betaDone
+	<-s.betaDone // 010 is hanging here, waiting for beta to finish
 	<-s.monitorDone
 	s.home.Stop()
 
@@ -551,7 +551,7 @@ func (s *Home) Start() {
 			po("%p home done.", s)
 		}()
 		for {
-			select {
+			select { // 010 is blocked here
 
 			case s.IsAlphaHome <- s.alphaHome:
 			case s.IsBetaHome <- s.betaHome:

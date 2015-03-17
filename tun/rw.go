@@ -11,6 +11,10 @@ import (
 // in this file: RW and its essential members NetConnReader and NetConnWriter
 //
 
+// NB to make goroutine stack traces interpretable, rw.go
+// is used for the ReverseProxy (server) implementation, and
+// crw.go (a duplicate of rw.go) is used for the client (forward proxy).
+
 // ===========================================
 //
 //                   RW
@@ -243,7 +247,7 @@ func (s *NetConnReader) Start() {
 			err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
 			panicOn(err)
 
-			n64, err := s.conn.Read(buf)
+			n64, err := s.conn.Read(buf) // 010 is looping her, trying to read
 			if IsTimeout(err) {
 				if n64 != 0 {
 					panic(fmt.Errorf("unexpected: got timeout and read of %d bytes back", n64))
@@ -420,7 +424,7 @@ func (s *NetConnWriter) Start() {
 
 		for {
 
-			select {
+			select { // 010 is blocked here
 			case buf = <-s.upReadToDnWrite:
 			case <-s.reqStop:
 				return
