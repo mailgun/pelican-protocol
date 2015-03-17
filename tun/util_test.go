@@ -32,7 +32,7 @@ func StartTestSystemWithPing() (*WebServer, *ReverseProxy, *PelicanSocksProxy, e
 
 	web, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
 	panicOn(err)
-	web.Start()
+	web.Start("pingable-test-webserver")
 
 	if !PortIsBound(web.Cfg.Listen.IpPort) {
 		panic("web server did not come up")

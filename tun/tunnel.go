@@ -33,8 +33,8 @@ import (
 // -----------------------             -------------------------
 // | TcpUpstreamReceiver |             |  net.Conn TCP connect |
 // |    |                |             |               ^       |
-// |    v                |             |              RW       |
-// |    RW               |             |               ^       |
+// |    v                |             |           ServerRW    |
+// | ClientRW            |             |               ^       |
 // |    v                |    http     |               |       |
 // | Chaser->alpha/beta->|------------>|WebServer--> LongPoller|
 // -----------------------             -------------------------
@@ -46,7 +46,7 @@ type LongPoller struct {
 	Done              chan bool
 	ClientPacketRecvd chan *tunnelPacket
 
-	rw        *RW // manage the goroutines that read and write dnConn
+	rw        *ServerRW // manage the goroutines that read and write dnConn
 	recvCount int
 	conn      net.Conn
 
@@ -57,9 +57,16 @@ type LongPoller struct {
 
 	Dest Addr
 
-	mut sync.Mutex
+	mut          sync.Mutex
+	CloseKeyChan chan string
 }
 
+// Make a new LongPoller as a part of the server (ReverseProxy is the server;
+// PelicanSocksProxy is the client).
+//
+// If a CloseKeyChan receives a key, we return any associated client -> server
+// http request immediately for that key, to facilitate quick shutdown.
+//
 func NewLongPoller(dest Addr) *LongPoller {
 	key := GenPelicanKey()
 	if dest.Port == 0 {
@@ -76,6 +83,7 @@ func NewLongPoller(dest Addr) *LongPoller {
 		ClientPacketRecvd: make(chan *tunnelPacket),
 		key:               string(key),
 		Dest:              dest,
+		CloseKeyChan:      make(chan string),
 	}
 
 	return s
@@ -133,7 +141,7 @@ func (s *LongPoller) Start() error {
 	}
 
 	// s.dial() sets s.conn on success.
-	s.rw = NewRW(s.conn, 0, nil, nil)
+	s.rw = NewServerRW(s.conn, 0, nil, nil)
 	s.rw.Start()
 
 	go func() {
@@ -155,6 +163,9 @@ func (s *LongPoller) Start() error {
 				select { // 010 is blocked here
 				case pack = <-s.ClientPacketRecvd:
 				case <-s.reqStop:
+					return
+				case <-s.CloseKeyChan:
+					po("tunnel.go: LongPoller in nil packet state, got closekeychan. Shutting down.")
 					return
 				}
 			}
@@ -182,6 +193,8 @@ func (s *LongPoller) Start() error {
 			dur := 30 * time.Second
 			// the client will spin up another goroutine/thread/sender if it has
 			// an additional send in the meantime.
+
+			po("LongPoll::Start(): tunnel.go starting to wait up to %v", dur)
 
 			var n64 int64
 			longPollTimeUp := time.After(dur)
@@ -214,6 +227,12 @@ func (s *LongPoller) Start() error {
 				close(pack.done)
 				pack = nil
 
+			case <-s.CloseKeyChan:
+				po("tunnel.go: LongPoller with pending packet got closekey. returning packet and then exiting LongPoller")
+				close(pack.done)
+				pack = nil
+				return
+
 			case newpacket := <-s.ClientPacketRecvd:
 				po("tunnel.go: <-s.ClientPakcetRecvd!!: %#v\n", newpacket)
 				s.recvCount++
@@ -221,6 +240,8 @@ func (s *LongPoller) Start() error {
 				close(pack.done)
 				pack = newpacket
 			}
+
+			po("LongPoll::Start(): at end of select/long wait.")
 		}
 	}()
 	return nil

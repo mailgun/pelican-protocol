@@ -8,20 +8,21 @@ import (
 )
 
 //
-// in this file: RW and its essential members NetConnReader and NetConnWriter
+// in this file: ServerRW and its essential members NetConnReader and NetConnWriter
 //
 
 // NB to make goroutine stack traces interpretable, rw.go
 // is used for the ReverseProxy (server) implementation, and
-// crw.go (a duplicate of rw.go) is used for the client (forward proxy).
+// crw.go (a duplicate of rw.go renamed as ClientRW) is used
+// for the client (forward proxy).
 
 // ===========================================
 //
-//                   RW
+//                ServerRW
 //
 // ===========================================
 //
-// RW packages up a reader and a writer for a specific
+// ServerRW packages up a reader and a writer for a specific
 // net.Conn connection along with a copy of that net connection.
 //
 // The NetConnReader and the NetConnWriter work as a pair to
@@ -29,7 +30,7 @@ import (
 // supplied by SendCh() and RecvCh() for access to the connection
 // via channels/goroutines.
 //
-type RW struct {
+type ServerRW struct {
 	conn            net.Conn
 	r               *NetConnReader
 	w               *NetConnWriter
@@ -37,11 +38,11 @@ type RW struct {
 	dnReadToUpWrite chan []byte // can only send []byte to upstream
 }
 
-// make a new RW, passing bufsz to NewNetConnReader(). If the notifyWriterDone
+// make a new ServerRW, passing bufsz to NewNetConnReader(). If the notifyWriterDone
 // and/or notifyReaderDone channels are not nil, then they will
 // receive a pointer to the NetConnReader (NetConnWriter) at Stop() time.
 //
-func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *RW {
+func NewServerRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *ServerRW {
 
 	// buffered channels here are important: we want
 	// exactly buffered channel semantics: don't block
@@ -50,7 +51,7 @@ func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, no
 	upReadToDnWrite := make(chan []byte, 1000)
 	dnReadToUpWrite := make(chan []byte, 1000)
 
-	s := &RW{
+	s := &ServerRW{
 		conn:            netconn,
 		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
 		w:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
@@ -60,50 +61,50 @@ func NewRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, no
 	return s
 }
 
-// Start the RW service.
-func (s *RW) Start() {
+// Start the ServerRW service.
+func (s *ServerRW) Start() {
 	s.r.Start()
 	s.w.Start()
 }
 
-// Close is the same as Stop(). Both shutdown the running RW service.
+// Close is the same as Stop(). Both shutdown the running ServerRW service.
 // Start must have been called first.
-func (s *RW) Close() {
+func (s *ServerRW) Close() {
 	s.Stop()
 }
 
-// Stop the RW service. Start must be called prior to Stop.
-func (s *RW) Stop() {
+// Stop the ServerRW service. Start must be called prior to Stop.
+func (s *ServerRW) Stop() {
 	s.r.Stop()
 	s.w.Stop()
 	s.conn.Close()
 }
 
-func (s *RW) StopWithoutNotify() {
+func (s *ServerRW) StopWithoutNotify() {
 	s.r.StopWithoutNotify()
 	s.w.StopWithoutNotify()
 	s.conn.Close()
 }
 
 // can only be used to send to internal net.Conn
-func (s *RW) SendCh() chan []byte {
+func (s *ServerRW) SendCh() chan []byte {
 	return s.w.SendToDownCh()
 }
 
 // can only be used to recv from internal net.Conn
-func (s *RW) RecvCh() chan []byte {
+func (s *ServerRW) RecvCh() chan []byte {
 	return s.r.RecvFromDownCh()
 }
 
-func (s *RW) SendToDownCh() chan []byte {
+func (s *ServerRW) SendToDownCh() chan []byte {
 	return s.w.SendToDownCh()
 }
 
-func (s *RW) RecvFromDownCh() chan []byte {
+func (s *ServerRW) RecvFromDownCh() chan []byte {
 	return s.r.RecvFromDownCh()
 }
 
-func (s *RW) IsDone() bool {
+func (s *ServerRW) IsDone() bool {
 	return s.r.IsDone() && s.w.IsDone()
 }
 
@@ -219,11 +220,7 @@ func (s *NetConnReader) finish() {
 		s.notifyDoneCh <- s
 	}
 
-	if s.LastErr != nil {
-		po("rw reader %p shut down complete, last error: '%s'\n", s, s.LastErr)
-	} else {
-		po("rw reader %p shut down complete, last error: nil\n", s)
-	}
+	po("rw reader %p shut down complete, last error: '%v'\n", s, s.LastErr)
 	close(s.Done)
 }
 
@@ -247,7 +244,7 @@ func (s *NetConnReader) Start() {
 			err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
 			panicOn(err)
 
-			n64, err := s.conn.Read(buf) // 010 is looping her, trying to read
+			n64, err := s.conn.Read(buf) // 010 is looping her, trying to read in rev.
 			if IsTimeout(err) {
 				if n64 != 0 {
 					panic(fmt.Errorf("unexpected: got timeout and read of %d bytes back", n64))
@@ -404,7 +401,7 @@ func (s *NetConnWriter) finish() {
 		s.notifyDoneCh <- s
 	}
 
-	po("rw writer %p shut down complete, last error: '%s'\n", s, s.LastErr)
+	po("rw writer %p shut down complete, last error: '%v'\n", s, s.LastErr)
 	close(s.Done)
 }
 

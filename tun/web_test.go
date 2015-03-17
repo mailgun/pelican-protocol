@@ -21,7 +21,7 @@ func TestWebServer888(t *testing.T) {
 
 	s, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
 	panicOn(err)
-	s.Start()
+	s.Start("ping-test-webserver")
 	defer s.Stop()
 
 	cv.Convey("NewWebServer followed by Start() should bring up a web-server", t, func() {
@@ -43,7 +43,7 @@ func TestWebServerPortAlreadyTakenDetected801(t *testing.T) {
 
 	s, err := NewWebServer(WebServerConfig{}, nil, specialFastTestReadTimeout)
 	panicOn(err)
-	s.Start()
+	s.Start("test-webserver")
 	defer s.Stop()
 
 	cv.Convey("NewWebServer on a port that is already taken should return an error\n", t,

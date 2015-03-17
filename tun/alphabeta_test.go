@@ -15,7 +15,7 @@ func TestPelicanSocksProxyHomePolicyMakerForLongPolling014(t *testing.T) {
 
 		cv.Convey("Initiatially both alpha and beta txn are at home, and the home controller should indicate that beta should stay and alpha should go\n", func() {
 
-			home := NewHome()
+			home := NewClientHome()
 			cv.So(home.alphaHome, cv.ShouldEqual, true)
 			cv.So(home.betaHome, cv.ShouldEqual, true)
 

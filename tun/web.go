@@ -23,6 +23,8 @@ type WebServer struct {
 	started bool
 	stopped bool
 	Cfg     WebServerConfig
+
+	Name string // distinguish for debug prints the various web server uses/at Start()
 }
 
 type WebServerConfig struct {
@@ -63,17 +65,18 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Dura
 	return s, nil
 }
 
-func (s *WebServer) Start() {
+func (s *WebServer) Start(webName string) {
+	s.Name = webName
 	if s.started {
 		return
 	}
 	s.started = true
-	po("WebServer::Start() begun, for s = %p.\n", s)
+	po("WebServer::Start('%s') begun, for s = %p.\n", webName, s)
 
 	go func() {
 		err := s.tts.ListenAndServe()
 		if nil != err {
-			po("WebServer::Start() done with s.tts.ListenAndServer(); err = '%s'.\n", err)
+			po("WebServer::Start('%s') done with s.tts.ListenAndServer(); err = '%s'.\n", webName, err)
 			//log.Println(err) // accept tcp 127.0.0.1:3000: use of closed network connection
 		}
 		s.stopped = true

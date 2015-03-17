@@ -76,7 +76,7 @@ type Chaser struct {
 	monitorDone chan bool
 
 	closedChan chan bool
-	home       *Home
+	home       *ClientHome
 
 	key  string
 	dest Addr
@@ -92,7 +92,7 @@ type Chaser struct {
 	mut sync.Mutex
 	cfg ChaserConfig
 
-	httpClient *http.Client
+	httpClient *TimeoutClient
 }
 
 type ChaserConfig struct {
@@ -162,7 +162,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, bufsz int, key string, notifyDon
 		alphaIsHome: true,
 		betaIsHome:  true,
 		closedChan:  make(chan bool),
-		home:        NewHome(),
+		home:        NewClientHome(),
 		dest:        dest,
 		key:         key,
 		notifyDone:  notifyDone,
@@ -203,8 +203,8 @@ func (s *Chaser) Stop() {
 
 	s.rw.Stop()
 
-	<-s.alphaDone
-	<-s.betaDone // 010 is hanging here, waiting for beta to finish
+	<-s.alphaDone // or 01a is hanging here
+	<-s.betaDone  // 010 is hanging here, waiting for beta to finish
 	<-s.monitorDone
 	s.home.Stop()
 
@@ -216,6 +216,10 @@ func (s *Chaser) Stop() {
 func (s *Chaser) startMonitor() {
 	go func() {
 		defer func() {
+			// tell the server that this key/session is closing down.
+			// important so that the long-polling routines can shut down.
+			s.DoRequestResponse([]byte{}, "closekey")
+
 			close(s.monitorDone)
 			po("%p monitor done.", s)
 		}()
@@ -271,11 +275,11 @@ func (s *Chaser) startAlpha() {
 				po("%p Alpha shutting down, after s.notifyDone <- s finished.", s)
 				//case <-time.After(10 * time.Millisecond):
 				//}
-				po("%p Alpha done.", s)
 			}
+			close(s.alphaDone)
+			po("%p Alpha done.", s)
 		}()
 
-		defer func() { close(s.alphaDone) }()
 		var work []byte
 		var goNow bool
 		for {
@@ -329,7 +333,7 @@ func (s *Chaser) startAlpha() {
 			// ================================
 
 			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
-			replyBytes, err := s.DoRequestRespnose(work)
+			replyBytes, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
 				return
@@ -411,7 +415,7 @@ func (s *Chaser) startBeta() {
 			// request-response cycle here
 			// ================================
 
-			replyBytes, err := s.DoRequestRespnose(work)
+			replyBytes, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p beta aborting on error from DoRequestResponse: '%s'", s, err)
 				return
@@ -444,7 +448,7 @@ const Alpha who = 1
 const Beta who = 2
 const Both who = 3
 
-type Home struct {
+type ClientHome struct {
 	reqStop chan bool
 	Done    chan bool
 
@@ -485,9 +489,9 @@ type Home struct {
 	mut            sync.Mutex
 }
 
-func NewHome() *Home {
+func NewClientHome() *ClientHome {
 
-	s := &Home{
+	s := &ClientHome{
 		reqStop: make(chan bool),
 		Done:    make(chan bool),
 
@@ -520,7 +524,7 @@ func NewHome() *Home {
 	return s
 }
 
-func (s *Home) Stop() {
+func (s *ClientHome) Stop() {
 	s.RequestStop()
 	<-s.Done
 }
@@ -528,7 +532,7 @@ func (s *Home) Stop() {
 // RequestStop makes sure we only close
 // the s.reqStop channel once. Returns
 // true iff we closed s.reqStop on this call.
-func (s *Home) RequestStop() bool {
+func (s *ClientHome) RequestStop() bool {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
@@ -541,17 +545,17 @@ func (s *Home) RequestStop() bool {
 	}
 }
 
-func (s *Home) String() string {
+func (s *ClientHome) String() string {
 	return fmt.Sprintf("home:{alphaHome: %v, betaHome: %v} / ptr=%p", s.alphaHome, s.betaHome, s)
 }
 
-func (s *Home) Start() {
+func (s *ClientHome) Start() {
 	go func() {
 		defer func() {
 			po("%p home done.", s)
 		}()
 		for {
-			select { // 010 is blocked here
+			select { // 010 is blocked here. 01a too.
 
 			case s.IsAlphaHome <- s.alphaHome:
 			case s.IsBetaHome <- s.betaHome:
@@ -637,19 +641,19 @@ func (s *Home) Start() {
 	}()
 }
 
-func (s *Home) shouldAlphaGo() (res bool) {
+func (s *ClientHome) shouldAlphaGo() (res bool) {
 	if s.numHome() == 2 {
 		return true
 	}
 	return false
 }
 
-func (s *Home) shouldBetaGo() (res bool) {
+func (s *ClientHome) shouldBetaGo() (res bool) {
 	// in case of tie, arbitrarily alpha goes first.
 	return false
 }
 
-func (s *Home) numHome() (res int) {
+func (s *ClientHome) numHome() (res int) {
 	if s.alphaHome && s.betaHome {
 		return 2
 	}
@@ -659,46 +663,34 @@ func (s *Home) numHome() (res int) {
 	return 0
 }
 
-func (s *Home) update() {
+func (s *ClientHome) update() {
 	s.shouldAlphaGoCached = s.shouldAlphaGo()
 	s.shouldBetaGoCached = s.shouldBetaGo()
 
 }
 
-func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
+// issue a post to the urlPath (omit the leading slash! deault to ""),
+// submitting 'work', returning 'back' and any error.
+// the urlPath should normally be "", but can be "closekey" to tell
+// the server to return any outstanding request for key immediately and
+// to shutdown the downstream connection to target server.
+// We don't want to actually close the actual physical net.Conn
+// because other keys/clients can re-use it for other/on-going work.
+// Indeed it might be in use right now for another key's packets.
+//
+func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, err error) {
 
-	//modeled after: func (reader *ConnReader) sendThenRecv(dest Addr, key string, buf *bytes.Buffer) error {
-	// write buf to new http request, starting with key
-
-	//po("\n\n debug: DoRequestRespnose called with dest: '%#v', key: '%s', and work: '%s'\n", s.dest, s.key, string(work))
-
+	//po("debug: DoRequestResponse called with dest: '%#v', key: '%s', and work: '%s'", s.dest, s.key, string(work))
 	// assemble key + work into request
 	req := bytes.NewBuffer([]byte(s.key))
 	req.Write(work) // add work after key
 
-	po("in DoRequestResponse just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v\n", string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout)
+	po("in DoRequestResponse(url='%s') just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v\n", urlPath, string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout)
 
-	// this stuff *sloooows* everything down: it messes with the web server shutdown times.
-	/*
-		goreq.SetConnectTimeout(s.cfg.ConnectTimeout)
-		resp, err := goreq.Request{
-			Method:      "POST",
-			Uri:         "http://" + s.dest.IpPort + "/",
-			ContentType: "application/octet-stream",
-			Body:        req,
-			Timeout:     s.cfg.TransportTimeout,
-		}.Do()
-	*/
+	url := "http://" + s.dest.IpPort + "/" + urlPath
+	resp, err := http.Post(url, "application/octet-stream", req)
 
-	// also slows the shutdown, what the ??
-	//resp, err := s.httpClient.Post(
-
-	resp, err := http.Post(
-		"http://"+s.dest.IpPort+"/",
-		"application/octet-stream",
-		req)
-
-	po("in DoRequestResponse just after Post\n")
+	po("in DoRequestResponse(url='%s') just after Post", urlPath)
 
 	defer func() {
 		if resp != nil && resp.Body != nil {
@@ -709,7 +701,6 @@ func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
 
 	if err != nil && err != io.EOF {
 		log.Println(err.Error())
-		//continue
 		return []byte{}, err
 	}
 

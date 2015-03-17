@@ -15,7 +15,7 @@ func TestServerSideWebSiteMockStartsUp004(t *testing.T) {
 
 		web, err := NewWebServer(WebServerConfig{}, nil, specialFastTestReadTimeout)
 		panicOn(err)
-		web.Start()
+		web.Start("most-downstream-target")
 		cv.So(PortIsBound(web.Cfg.Listen.IpPort), cv.ShouldEqual, true)
 
 		defer func() {
@@ -43,7 +43,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 
 	web, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
 	panicOn(err)
-	web.Start()
+	web.Start("ultimate-webserver-mock")
 	defer web.Stop()
 
 	if !PortIsBound(web.Cfg.Listen.IpPort) {

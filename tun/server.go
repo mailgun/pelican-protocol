@@ -24,6 +24,7 @@ type ReverseProxy struct {
 	packetQueue chan *tunnelPacket
 	createQueue chan *LongPoller
 	mut         sync.Mutex
+	closeKeyReq chan string
 }
 
 // RequestStop makes sure we only close
@@ -71,6 +72,7 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 		reqStop:     make(chan bool),
 		packetQueue: make(chan *tunnelPacket),
 		createQueue: make(chan *LongPoller),
+		closeKeyReq: make(chan string),
 	}
 }
 
@@ -100,6 +102,15 @@ func (s *ReverseProxy) Start() {
 		po("ReverseProxy::Start(), aka tunnelMuxer started\n")
 		for {
 			select {
+			case closekey := <-s.closeKeyReq:
+				tunnel, ok := tunnelMap[closekey]
+				if !ok {
+					log.Printf("Couldn't find tunnel for key = '%x'", closekey)
+					continue
+				}
+				close(tunnel.CloseKeyChan)
+				delete(tunnelMap, closekey)
+
 			case pp := <-s.packetQueue:
 
 				//po("tunnelMuxer: from pp <- packetQueue, we read key '%x'...\n", pp.key)
@@ -119,9 +130,9 @@ func (s *ReverseProxy) Start() {
 					return
 				}
 			case p := <-s.createQueue:
-				po("tunnelMuxer: got p=%p on <-createQueue\n", p)
+				po("ReverseProxy::Start(): got tunnelPacket  p=%p on <-createQueue\n", p)
 				tunnelMap[p.key] = p
-				//po("tunnelMuxer: after adding key '%x'..., tunnelMap is now: '%#v'\n", p.key[:5], tunnelMap)
+				po("ReverseProxy::Start(): after adding key '%s' to tunnelMap", string(p.key[:5]))
 
 			case <-s.reqStop:
 				// deferred finish() takes care of the rest
@@ -187,20 +198,55 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		s.createQueue <- tunnel
 
 		respW.Write([]byte(key))
-		po("Server::createHandler done for key '%x'...\n", key[:5])
+		po("Server::createHandler done for key '%s'...\n", string(key[:5]))
+	}
+
+	// closeKeyHandler
+	closeKeyHandler := func(respW http.ResponseWriter, r *http.Request) {
+		po("Server::closeKeyHandler starting.\n")
+
+		body, err := ioutil.ReadAll(r.Body)
+		r.Body.Close()
+		panicOn(err)
+		key := make([]byte, KeyLen)
+		copy(key, body)
+		legitPelicanKey := IsLegitPelicanKey(key)
+
+		if len(body) < KeyLen || !legitPelicanKey {
+			// pass through here to the downstream webserver directly, by-passing pelican protocol stuff
+
+			// here we could act simply as a pass through proxy
+
+			// or instead: we'll assume that such multiplexing has already been handled for us up front.
+			// e.g.
+			http.Error(respW, fmt.Sprintf("Pelican Protocol key not found or couldn't read key, not enough bytes in body. len(body) = %d\n",
+				len(body)),
+				http.StatusBadRequest)
+			return
+		}
+
+		skey := string(key)
+		select {
+		case s.closeKeyReq <- skey:
+			po("rev server's closeKeyHandler passed along close key '%s' to s.closeKeyReq", skey[:5])
+		case <-s.reqStop:
+			//don't deadlock
+		}
+		po("Server::closeKeyHandler done for key '%s'...\n", string(key[:5]))
 	}
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", packetHandler)
 	mux.HandleFunc("/create", createHandler)
+	mux.HandleFunc("/closekey", closeKeyHandler)
 
 	webcfg := WebServerConfig{Listen: s.Cfg.Listen}
 	var err error
 	s.web, err = NewWebServer(webcfg, mux, DefaultWebReadTimeout)
 	panicOn(err)
 	//VPrintf("\n Server::createHandler(): about to w.web.Start() with webcfg = '%#v'\n", webcfg)
-	s.web.Start()
+	s.web.Start("ReverseProxy")
 
 }
 

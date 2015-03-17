@@ -359,12 +359,12 @@ func (f *PelicanSocksProxy) Start() error {
 					i++
 				}
 			case thisChaserIsDone := <-f.ChaserDoneCh:
-				po("thisChaserIsDone %p received on channel, len(chasers) = %d\n", thisChaserIsDone, len(f.chasers))
+				po("thisChaserIsDone %p received on channel, len(chasers) = %d", thisChaserIsDone, len(f.chasers))
 				if !f.chasers[thisChaserIsDone] {
 					panic(fmt.Sprintf("thisChaserIsDone %p not found in f.chasers = '%#v'", thisChaserIsDone, f.chasers))
 				}
 				delete(f.chasers, thisChaserIsDone)
-				fmt.Printf("\n\nchaser stopped and deleted: %p. after delete, len(chasers) = %d\n", thisChaserIsDone, len(f.chasers))
+				po("chaser stopped and deleted: %p. after delete, len(chasers) = %d", thisChaserIsDone, len(f.chasers))
 
 				//f.redoAlarm()
 
@@ -386,8 +386,8 @@ func (f *PelicanSocksProxy) Start() error {
 		}
 	}()
 
-	po("\n about to call WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
+	po("\n end of PelicanSocksProxy::ConnectDownstreamHttp(): about to call WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
 	WaitUntilServerUp(f.Cfg.Listen.IpPort)
-	po("\n after call to WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s\n", f.Cfg.Listen.IpPort)
+	po("\n end of PelicanSocksProxy::ConnectDownstreamHttp(): after call to WaitUntilServerUp(f.Cfg.Listen.IpPort) with Listen = %s    len(f.chasers)=%d\n", f.Cfg.Listen.IpPort, len(f.chasers))
 	return nil
 }

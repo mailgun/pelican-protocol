@@ -1,9 +1,6 @@
 package pelicantun
 
-// this code is not used, but kept here for reference. We use the goreq library
-// instead.
-//
-// source: https://gist.github.com/seantalts/11266762
+// ideas from gist: https://gist.github.com/seantalts/11266762
 
 import (
 	"fmt"
@@ -11,8 +8,19 @@ import (
 	"time"
 )
 
-func NewTimeoutClient(roundTo time.Duration) *http.Client {
-	return &http.Client{Transport: NewTimeoutTransport(roundTo)}
+type TimeoutClient struct {
+	http.Client
+	trans *TimeoutTransport
+}
+
+func NewTimeoutClient(roundTo time.Duration) *TimeoutClient {
+	trans := NewTimeoutTransport(roundTo)
+	return &TimeoutClient{
+		http.Client{
+			Transport: trans,
+		},
+		trans,
+	}
 }
 
 func NewTimeoutTransport(roundTo time.Duration) *TimeoutTransport {
