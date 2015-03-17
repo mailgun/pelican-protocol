@@ -53,8 +53,6 @@ func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, de
 
 	rw := NewRW(conn, bufsz, rwReaderDone, rwWriterDone)
 
-	po("\n\n Chaser gets NewRW() = %p with %p NetConnReader and %p NetConnWriter\n\n", rw, rw.r, rw.w)
-
 	s := &Chaser{
 		rw:           rw,
 		rwReaderDone: rwReaderDone,
@@ -77,6 +75,8 @@ func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, de
 		key:         key,
 		notifyDone:  notifyDone,
 	}
+
+	po("\n\n Chaser %p gets NewRW() = %p with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
 
 	// always closed
 	close(s.closedChan)

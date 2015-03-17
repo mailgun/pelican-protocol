@@ -21,7 +21,7 @@ func Test_RW_EOF_on_reader_does_not_close_writer_0061(t *testing.T) {
 			panic(err)
 		}
 	*/
-	cv.Convey("given an operating tunnel from cli -> fwd -> rev -> srv, we should close the fwd and rev net.Conn only once we've gotten EOF on both the read from the srv and the read from the cli", t, func() {
+	cv.Convey("given an operating tunnel from cli -> fwd -> rev -> srv, we should close the fwd and rev net.Conn only once we've gotten EOF on both the read from the srv and the read from the cli. The EOF represent the connection being closed, but the read end may close before the write.", t, func() {
 
 	})
 

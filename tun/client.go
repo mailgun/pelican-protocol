@@ -256,7 +256,7 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 
 	// initiate new session and read key
 	url := fmt.Sprintf("http://%s/create", f.Cfg.Dest.IpPort)
-	log.Printf("client/PSP: ConnectDownstreamHttp: attempting POST to '%s'\n", url)
+	po("client/PSP: ConnectDownstreamHttp: attempting POST to '%s'\n", url)
 	resp, err := http.Post(
 		url,
 		"text/plain",

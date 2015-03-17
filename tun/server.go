@@ -219,7 +219,11 @@ type tunnelPacket struct {
 }
 
 // print out shortcut
-var po = VPrintf
+func po(format string, a ...interface{}) {
+	if Verbose {
+		TSPrintf("\n\n"+format+"\n\n", a...)
+	}
+}
 
 func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string) ([]byte, error) {
 	pack := &tunnelPacket{
