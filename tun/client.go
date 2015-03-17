@@ -16,6 +16,7 @@ type PelicanSocksProxyConfig struct {
 	Listen           Addr
 	Dest             Addr
 	tickIntervalMsec int
+	ChaserCfg        ChaserConfig
 }
 
 type PelicanSocksProxy struct {
@@ -73,6 +74,14 @@ func (f *PelicanSocksProxy) SetDefault() {
 	f.Cfg.Dest.SetIpPort()
 	if f.Cfg.tickIntervalMsec == 0 {
 		f.Cfg.tickIntervalMsec = 250
+	}
+
+	chaserDefault := DefaultChaserConfig()
+	if f.Cfg.ChaserCfg.ConnectTimeout == 0 {
+		f.Cfg.ChaserCfg.ConnectTimeout = chaserDefault.ConnectTimeout
+	}
+	if f.Cfg.ChaserCfg.TransportTimeout == 0 {
+		f.Cfg.ChaserCfg.TransportTimeout = chaserDefault.TransportTimeout
 	}
 }
 
@@ -340,11 +349,15 @@ func (f *PelicanSocksProxy) Start() error {
 
 				VPrintf("in case upConn = <-f.Up.UpstreamTcpConnChan,  %v -> %v\n", upConn.RemoteAddr(), upConn.LocalAddr())
 
-				chaser := NewChaser(upConn, bufSize, key, f.ChaserDoneCh, f.Cfg.Dest)
+				chaser := NewChaser(f.Cfg.ChaserCfg, upConn, bufSize, key, f.ChaserDoneCh, f.Cfg.Dest)
 				chaser.Start()
 				f.chasers[chaser] = true
 				po("after add new chaser %p, len(chasers) = %d\n", chaser, len(f.chasers))
-
+				i := 0
+				for ch := range f.chasers {
+					po("%d-th chaser is %p", i, ch)
+					i++
+				}
 			case thisChaserIsDone := <-f.ChaserDoneCh:
 				po("thisChaserIsDone %p received on channel, len(chasers) = %d\n", thisChaserIsDone, len(f.chasers))
 				if !f.chasers[thisChaserIsDone] {

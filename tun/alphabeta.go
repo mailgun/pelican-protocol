@@ -13,77 +13,6 @@ import (
 	"time"
 )
 
-var globalHome *Home
-
-/*
-func example_main() {
-	c := NewChaser()
-	c.Start()
-	globalHome = c.home
-
-	for i := 1; i < 100; i++ {
-		buf := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buf, uint64(i))
-
-		c.incoming <- buf
-		rsleep()
-		rsleep()
-		rsleep()
-		rsleep()
-	}
-
-}
-*/
-
-func NewChaser(conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, dest Addr) *Chaser {
-
-	if key == "" || len(key) != KeyLen {
-		panic(fmt.Errorf("NewChaser() error: key '%s' was not of expected length %d. instead: %d", key, KeyLen, len(key)))
-	}
-
-	if dest.IpPort == "" {
-		panic(fmt.Errorf("dest.IpPort was empty the string"))
-	}
-	if dest.Port == 0 {
-		panic(fmt.Errorf("dest.Port was 0"))
-	}
-
-	rwReaderDone := make(chan *NetConnReader)
-	rwWriterDone := make(chan *NetConnWriter)
-
-	rw := NewRW(conn, bufsz, rwReaderDone, rwWriterDone)
-
-	s := &Chaser{
-		rw:           rw,
-		rwReaderDone: rwReaderDone,
-		rwWriterDone: rwWriterDone,
-
-		reqStop: make(chan bool),
-		Done:    make(chan bool),
-
-		alphaDone:   make(chan bool),
-		betaDone:    make(chan bool),
-		monitorDone: make(chan bool),
-		incoming:    rw.RecvCh(), // requests to the remote http
-		repliesHere: rw.SendCh(), // replies from remote http are passed upstream here.
-
-		alphaIsHome: true,
-		betaIsHome:  true,
-		closedChan:  make(chan bool),
-		home:        NewHome(),
-		dest:        dest,
-		key:         key,
-		notifyDone:  notifyDone,
-	}
-
-	po("\n\n Chaser %p gets NewRW() = %p with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
-
-	// always closed
-	close(s.closedChan)
-
-	return s
-}
-
 // Similar in spirit to Comet, Ajax-long-polling,
 // and BOSH (http://en.wikipedia.org/wiki/BOSH),
 // the following struct and methods for
@@ -161,6 +90,92 @@ type Chaser struct {
 	skipNotify bool
 
 	mut sync.Mutex
+	cfg ChaserConfig
+
+	httpClient *http.Client
+}
+
+type ChaserConfig struct {
+	ConnectTimeout   time.Duration
+	TransportTimeout time.Duration
+}
+
+func DefaultChaserConfig() *ChaserConfig {
+	return &ChaserConfig{
+		ConnectTimeout:   2000 * time.Millisecond,
+		TransportTimeout: 60 * time.Second,
+	}
+}
+
+/*
+func example_main() {
+	c := NewChaser()
+	c.Start()
+	globalHome = c.home
+
+	for i := 1; i < 100; i++ {
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, uint64(i))
+
+		c.incoming <- buf
+		rsleep()
+		rsleep()
+		rsleep()
+		rsleep()
+	}
+
+}
+*/
+
+func NewChaser(cfg ChaserConfig, conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, dest Addr) *Chaser {
+
+	if key == "" || len(key) != KeyLen {
+		panic(fmt.Errorf("NewChaser() error: key '%s' was not of expected length %d. instead: %d", key, KeyLen, len(key)))
+	}
+
+	if dest.IpPort == "" {
+		panic(fmt.Errorf("dest.IpPort was empty the string"))
+	}
+	if dest.Port == 0 {
+		panic(fmt.Errorf("dest.Port was 0"))
+	}
+
+	rwReaderDone := make(chan *NetConnReader)
+	rwWriterDone := make(chan *NetConnWriter)
+
+	rw := NewRW(conn, bufsz, rwReaderDone, rwWriterDone)
+
+	s := &Chaser{
+		rw:           rw,
+		rwReaderDone: rwReaderDone,
+		rwWriterDone: rwWriterDone,
+
+		reqStop: make(chan bool),
+		Done:    make(chan bool),
+
+		alphaDone:   make(chan bool),
+		betaDone:    make(chan bool),
+		monitorDone: make(chan bool),
+		incoming:    rw.RecvCh(), // requests to the remote http
+		repliesHere: rw.SendCh(), // replies from remote http are passed upstream here.
+
+		alphaIsHome: true,
+		betaIsHome:  true,
+		closedChan:  make(chan bool),
+		home:        NewHome(),
+		dest:        dest,
+		key:         key,
+		notifyDone:  notifyDone,
+		cfg:         cfg,
+		httpClient:  NewTimeoutClient(cfg.TransportTimeout),
+	}
+
+	po("\n\n Chaser %p gets NewRW() = %p with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
+
+	// always closed
+	close(s.closedChan)
+
+	return s
 }
 
 func (s *Chaser) Start() {
@@ -170,7 +185,7 @@ func (s *Chaser) Start() {
 	s.startBeta()
 	s.rw.Start()
 	fmt.Printf("\n\n Chaser started: %p for conn from '%s'\n\n", s, s.rw.conn.RemoteAddr())
-	po("\n\n for Chaser %p we have rw=%p   with reader = %p  writer = %p\n\n", s, s.rw, s.rw.r, s.rw.w)
+	po("\n\n for Chaser %p we have rw=%p   with reader = %p  writer = %p  home = %p\n\n", s, s.rw, s.rw.r, s.rw.w, s.home)
 }
 
 // Stops without reporting anything on the
@@ -193,27 +208,32 @@ func (s *Chaser) Stop() {
 	<-s.monitorDone
 	s.home.Stop()
 
-	po("Chaser %p all done.\n", s)
+	po("%p chaser all done.\n", s)
 	close(s.Done)
 }
 
 // monitor rw for shutdown
 func (s *Chaser) startMonitor() {
 	go func() {
-		defer close(s.monitorDone)
+		defer func() {
+			close(s.monitorDone)
+			po("%p monitor done.", s)
+		}()
+
 		for {
 			select {
 
 			case <-s.reqStop:
+				po("%p monitor got reqStop.", s)
 				s.rw.StopWithoutNotify()
 				return
 			case <-s.rwReaderDone:
-				po("monitor got rwReaderDone\n")
+				po("%p monitor got rwReaderDone", s)
 				s.rw.StopWithoutNotify()
 				s.RequestStop()
 				return
 			case <-s.rwWriterDone:
-				po("monitor got rwWriterDone\n")
+				po("%p monitor got rwWriterDone\n", s)
 				s.rw.StopWithoutNotify()
 				s.RequestStop()
 				return
@@ -240,6 +260,8 @@ func (s *Chaser) RequestStop() bool {
 
 func (s *Chaser) startAlpha() {
 	go func() {
+		po("%p alpha at top of startAlpha", s)
+
 		// so we don't notify twice, make alpha alone responsible
 		// for reporting on s.notifyDone.
 		defer func() {
@@ -249,6 +271,7 @@ func (s *Chaser) startAlpha() {
 				po("%p Alpha shutting down, after s.notifyDone <- s finished.", s)
 				//case <-time.After(10 * time.Millisecond):
 				//}
+				po("%p Alpha done.", s)
 			}
 		}()
 
@@ -331,7 +354,11 @@ func (s *Chaser) startAlpha() {
 // connection.
 func (s *Chaser) startBeta() {
 	go func() {
-		defer func() { close(s.betaDone) }()
+		po("%p beta at top of startBeta", s)
+		defer func() {
+			close(s.betaDone)
+			po("%p Beta done.", s)
+		}()
 		var work []byte
 		var goNow bool
 		for {
@@ -339,7 +366,9 @@ func (s *Chaser) startBeta() {
 
 			select {
 			case goNow = <-s.home.shouldBetaGoNow:
+				po("%p Beta got goNow = %v", s, goNow)
 			case <-s.reqStop:
+				po("%p Beta got s.reqStop", s)
 				return
 			}
 
@@ -351,6 +380,7 @@ func (s *Chaser) startBeta() {
 					po("%p beta got work on s.incoming '%s'.\n", s, string(work))
 					// launch with the data in work
 				case <-s.reqStop:
+					po("%p Beta got s.reqStop", s)
 					return
 				case <-s.alphaDone:
 					return
@@ -395,6 +425,7 @@ func (s *Chaser) startBeta() {
 			select {
 			case s.repliesHere <- replyBytes:
 			case <-s.reqStop:
+				po("%p Beta got s.reqStop", s)
 				return
 			}
 
@@ -516,6 +547,9 @@ func (s *Home) String() string {
 
 func (s *Home) Start() {
 	go func() {
+		defer func() {
+			po("%p home done.", s)
+		}()
 		for {
 			select {
 
@@ -581,6 +615,7 @@ func (s *Home) Start() {
 			case s.shouldBetaGoNow <- s.shouldBetaGoCached:
 
 			case <-s.reqStop:
+				po("%p home got s.reqStop", s)
 				close(s.Done)
 				return
 
@@ -641,11 +676,28 @@ func (s *Chaser) DoRequestRespnose(work []byte) (back []byte, err error) {
 	req := bytes.NewBuffer([]byte(s.key))
 	req.Write(work) // add work after key
 
-	po("in DoRequestResponse just before Post of work = '%s'\n", string(work))
+	po("in DoRequestResponse just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v\n", string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout)
+
+	// this stuff *sloooows* everything down: it messes with the web server shutdown times.
+	/*
+		goreq.SetConnectTimeout(s.cfg.ConnectTimeout)
+		resp, err := goreq.Request{
+			Method:      "POST",
+			Uri:         "http://" + s.dest.IpPort + "/",
+			ContentType: "application/octet-stream",
+			Body:        req,
+			Timeout:     s.cfg.TransportTimeout,
+		}.Do()
+	*/
+
+	// also slows the shutdown, what the ??
+	//resp, err := s.httpClient.Post(
+
 	resp, err := http.Post(
 		"http://"+s.dest.IpPort+"/",
 		"application/octet-stream",
 		req)
+
 	po("in DoRequestResponse just after Post\n")
 
 	defer func() {

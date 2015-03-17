@@ -81,23 +81,57 @@ func StartTestSystemWithBcast() (*BcastClient, *BcastServer, *ReverseProxy, *Pel
 	rev := NewReverseProxy(ReverseProxyConfig{Dest: srv.Listen})
 	rev.Start()
 
-	if !TempDisablePortIsBoundChecks {
-		if !PortIsBound(rev.Cfg.Listen.IpPort) {
-			panic("rev proxy not up")
-		}
+	// these checks actually stress out the system in a way that made it fail
+	// so we maintain a with and without check version for now. (See below
+	// in StartTestSystemWithBcastNoPortIsBoundChecks() for the version without
+	// the PortIsBound() checks.
+	//
+	if !PortIsBound(rev.Cfg.Listen.IpPort) {
+		panic("rev proxy not up")
 	}
 
 	// start the forward proxy, talks to the reverse proxy.
 	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
 		Dest: rev.Cfg.Listen,
+
+		ChaserCfg: ChaserConfig{
+			ConnectTimeout:   200 * time.Millisecond,
+			TransportTimeout: 200 * time.Second},
 	})
 	fwd.Start()
 
-	if !TempDisablePortIsBoundChecks {
-		if !PortIsBound(fwd.Cfg.Listen.IpPort) {
-			panic("fwd proxy not up")
-		}
+	if !PortIsBound(fwd.Cfg.Listen.IpPort) {
+		panic("fwd proxy not up")
 	}
+
+	// start broadcast client (to test receipt of long-polled data from server)
+	cli := NewBcastClient(Addr{Port: fwd.Cfg.Listen.Port})
+
+	return cli, srv, rev, fwd, nil
+}
+
+// version without the PortIsBound() checks, which appear to separately be messing up
+// the system somehow.
+func StartTestSystemWithBcastNoPortIsBoundChecks() (*BcastClient, *BcastServer, *ReverseProxy, *PelicanSocksProxy, error) {
+
+	// start broadcast server (to test long-poll functionality/server initiated message)
+	srv := NewBcastServer(Addr{})
+	srv.Start()
+
+	// start a reverse proxy
+	rev := NewReverseProxy(ReverseProxyConfig{Dest: srv.Listen})
+	rev.Start()
+
+	// start the forward proxy, talks to the reverse proxy.
+	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
+		Dest: rev.Cfg.Listen,
+
+		ChaserCfg: ChaserConfig{
+			ConnectTimeout:   200 * time.Millisecond,
+			TransportTimeout: 200 * time.Millisecond},
+	})
+
+	fwd.Start()
 
 	// start broadcast client (to test receipt of long-polled data from server)
 	cli := NewBcastClient(Addr{Port: fwd.Cfg.Listen.Port})

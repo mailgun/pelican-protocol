@@ -215,7 +215,11 @@ func (s *NetConnReader) finish() {
 		s.notifyDoneCh <- s
 	}
 
-	po("rw reader %p got error shut down complete, last error: '%s'\n", s, s.LastErr)
+	if s.LastErr != nil {
+		po("rw reader %p shut down complete, last error: '%s'\n", s, s.LastErr)
+	} else {
+		po("rw reader %p shut down complete, last error: nil\n", s)
+	}
 	close(s.Done)
 }
 
