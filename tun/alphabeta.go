@@ -8,7 +8,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 )
@@ -277,6 +276,8 @@ func (s *Chaser) startAlpha() {
 					// needed in case nobody is listening for us anymore
 				}
 			}
+			// cancel any outstanding http req, and close idle connections
+			s.httpClient.CancelAllReq()
 			close(s.alphaDone)
 			po("%p Alpha done.", s)
 		}()
@@ -690,20 +691,9 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 
 	url := "http://" + s.dest.IpPort + "/" + urlPath
 
-	resp, err := http.Post(url, "application/octet-stream", req)
-
 	//resp, err := http.Post(url, "application/octet-stream", req)
 
-	/*
-		goreq.SetConnectTimeout(s.cfg.ConnectTimeout)
-		resp, err := goreq.Request{
-			Method:      "POST",
-			Uri:         "http://" + s.dest.IpPort + "/" + urlPath,
-			ContentType: "application/octet-stream",
-			Body:        req,
-			Timeout:     s.cfg.TransportTimeout,
-		}.Do()
-	*/
+	resp, err := s.httpClient.Post(url, "application/octet-stream", req)
 
 	po("in DoRequestResponse(url='%s') just after Post. key = '%s'", urlPath, string(s.key[:5]))
 

@@ -5,7 +5,6 @@ package pelicantun
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"time"
@@ -21,10 +20,10 @@ func NewHttpClientWithTimeout(roundTo time.Duration) *HttpClientWithTimeout {
 	trans := NewTimeoutTransport(roundTo)
 
 	return &HttpClientWithTimeout{
-		http.Client{
+		Client: http.Client{
 			Transport: trans,
 		},
-		trans,
+		trans: trans,
 	}
 }
 
@@ -39,43 +38,52 @@ func (s *HttpClientWithTimeout) CloseIdleConnections() {
 	s.trans.CloseIdleConnections()
 }
 
-func (s *HttpClientWithTimeout) Post(url string, contentType string, body *bytes.Buffer) ([]byte, error) {
+func (s *HttpClientWithTimeout) CancelAllReq() {
+	s.trans.ReqCancel <- true
+}
+
+func (s *HttpClientWithTimeout) Post(url string, contentType string, body *bytes.Buffer) (*http.Response, error) {
 
 	req, err := http.NewRequest("POST", url, body)
 
 	if err != nil {
-		return []byte{}, fmt.Errorf("HttpClientWithTimeout::Post() NewRequest() to '%s' failed with error: '%s'", url, err)
+		return nil, fmt.Errorf("HttpClientWithTimeout::Post() NewRequest() to '%s' failed with error: '%s'", url, err)
 	}
 
 	req.Header.Add("Connection", "keep-alive")
 
 	response, err := s.Do(req)
 	if err != nil {
-		return []byte{}, fmt.Errorf("HttpClientWithTimeout::Post() client.Do(req) failed with error: '%s'", err)
+		return nil, fmt.Errorf("HttpClientWithTimeout::Post() client.Do(req) failed with error: '%s'", err)
 	}
 
-	resp, err2 := ioutil.ReadAll(response.Body)
-	if err2 != nil {
-		return []byte{}, fmt.Errorf("HttpClientWithTimeout::Post() ReadAll(resp.Body) failed: '%s'", err2)
-	}
-	response.Body.Close()
+	return response, err
+	/*
+		resp, err2 := ioutil.ReadAll(response.Body)
+		if err2 != nil {
+			return []byte{}, fmt.Errorf("HttpClientWithTimeout::Post() ReadAll(resp.Body) failed: '%s'", err2)
+		}
+		response.Body.Close()
 
-	return resp, nil
+		return resp, nil
+	*/
 }
 
 func NewTimeoutTransport(roundTo time.Duration) *TimeoutTransport {
 	return &TimeoutTransport{
-		http.Transport{
+		Transport: http.Transport{
 			Dial:  defaultDialerWithTimeout.Dial,
 			Proxy: http.ProxyFromEnvironment,
 		},
-		roundTo,
+		RoundTripTimeout: roundTo,
+		ReqCancel:        make(chan bool, 100),
 	}
 }
 
 type TimeoutTransport struct {
 	http.Transport
 	RoundTripTimeout time.Duration
+	ReqCancel        chan bool
 }
 
 type respAndErr struct {
@@ -107,6 +115,11 @@ func (t *TimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		t.Transport.CancelRequest(req)
 		return nil, netTimeoutError{
 			error: fmt.Errorf("timed out after %s", t.RoundTripTimeout),
+		}
+	case <-t.ReqCancel:
+		t.Transport.CancelRequest(req)
+		return nil, netTimeoutError{
+			error: fmt.Errorf("ReqCancel: request cancelled at user behest"),
 		}
 	case r := <-resp: // Success!
 		return r.resp, r.err
