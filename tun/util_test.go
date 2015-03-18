@@ -30,7 +30,7 @@ func StartTestSystemWithPing() (*WebServer, *ReverseProxy, *PelicanSocksProxy, e
 		fmt.Fprintf(w, "pong")
 	})
 
-	web, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
+	web, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, mux)
 	panicOn(err)
 	web.Start("pingable-test-webserver")
 

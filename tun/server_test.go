@@ -41,7 +41,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
+	web, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, mux)
 	panicOn(err)
 	web.Start("ultimate-webserver-mock")
 	defer web.Stop()
@@ -82,6 +82,7 @@ Accept-Encoding: gzip
 		}
 		reply, err := rev.injectPacket(mockRw, mockReq, body, tunnel.key)
 		cv.So(err, cv.ShouldEqual, nil)
+		po("reply = '%s'", string(reply))
 		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)
 		cv.So(strings.Contains(string(reply), `Content-Length: 4`), cv.ShouldEqual, true)
 		cv.So(strings.HasSuffix(string(reply), "pong"), cv.ShouldEqual, true)

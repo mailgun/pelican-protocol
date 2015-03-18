@@ -75,27 +75,29 @@ func (cli *BcastClient) Start() {
 
 		// read loop, check for done request
 		isTimeout := false
+		isEOF := false
 		for {
 			isTimeout = false
+			isEOF = false
 			err = conn.SetDeadline(time.Now().Add(time.Millisecond * 100))
 			panicOn(err)
 
 			// Read
 			n, err := conn.Read(buf)
-			if err != nil {
-				if strings.HasSuffix(err.Error(), "i/o timeout") {
-					// okay, ignore
-					isTimeout = true
-				} else {
-					if err != nil {
-						fmt.Printf("err = '%#v'/%T\n", err, err) // '&errors.errorString{s:"EOF"}'
-					}
-					// don't panic(err) // don't panic b/c client gets 'EOF' when server closes the connection. '&errors.errorString{s:"EOF"}'
-				}
+			switch {
+			case err == nil:
+			case strings.HasSuffix(err.Error(), "i/o timeout"):
+				// okay, ignore
+				isTimeout = true
+			case err.Error() == "EOF":
+				// when connection is shutdown, we get EOF
+				isEOF = true
+			default:
+				panic(err)
 			}
-			po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
+			//po("\n bcast_client: after Read, isTimeout: %v, isEOF: %v, err: %v\n", isTimeout, isEOF, err)
 
-			if !isTimeout {
+			if !isTimeout && !isEOF {
 				cli.lastMsg = string(buf[:n])
 				// only close once
 				select {
@@ -104,6 +106,11 @@ func (cli *BcastClient) Start() {
 					close(cli.MsgRecvd)
 				}
 				po("\n bcast_client: message received!!! after cli.Start() got to Read '%s' from conn. n = %d bytes\n", cli.lastMsg, n)
+			}
+
+			if isEOF {
+				po("bcast_client: got EOF, server shutting down. n=%d bytes recvd; buf = '%s'", n, string(buf[:n]))
+				return
 			}
 
 			// check for stop requests

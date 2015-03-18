@@ -55,7 +55,7 @@ func (s *HttpClientWithTimeout) Post(url string, contentType string, body *bytes
 
 	response, err := s.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HttpClientWithTimeout::Post() client.Do(req) failed with error: '%s'", err)
+		return nil, fmt.Errorf("HttpClientWithTimeout::Post() client.Do(req) got error: '%s'", err)
 	}
 
 	return response, err
