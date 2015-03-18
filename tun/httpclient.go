@@ -61,15 +61,6 @@ func (s *HttpClientWithTimeout) Post(url string, contentType string, body *bytes
 	}
 
 	return response, err
-	/*
-		resp, err2 := ioutil.ReadAll(response.Body)
-		if err2 != nil {
-			return []byte{}, fmt.Errorf("HttpClientWithTimeout::Post() ReadAll(resp.Body) failed: '%s'", err2)
-		}
-		response.Body.Close()
-
-		return resp, nil
-	*/
 }
 
 func NewTimeoutTransport(roundTo time.Duration) *TimeoutTransport {
