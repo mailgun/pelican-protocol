@@ -219,7 +219,10 @@ func (s *Chaser) startMonitor() {
 		defer func() {
 			// tell the server that this key/session is closing down.
 			// important so that the long-polling routines can shut down.
-			s.DoRequestResponse([]byte{}, "closekey")
+			// now prefer: let the rev server response to Stop() and
+			// don't open any more network connections when we are
+			// shutting down.
+			// s.DoRequestResponse([]byte{}, "closekey")
 
 			close(s.monitorDone)
 			po("%p monitor done.", s)
