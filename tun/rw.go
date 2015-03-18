@@ -301,6 +301,7 @@ func (s *NetConnReader) RequestStop() bool {
 		return false
 	default:
 		close(s.reqStop)
+		po("%p rw NetConnReader req.Stop closed", s)
 		return true
 	}
 }
@@ -319,6 +320,9 @@ func (s *NetConnReader) StopWithoutNotify() {
 }
 
 func (r *NetConnReader) IsStopRequested() bool {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+
 	select {
 	case <-r.reqStop:
 		return true
@@ -479,6 +483,9 @@ func (s *NetConnWriter) Stop() {
 }
 
 func (r *NetConnWriter) IsStopRequested() bool {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+
 	select {
 	case <-r.reqStop:
 		return true
@@ -521,6 +528,7 @@ func (s *NetConnWriter) RequestStop() bool {
 		return false
 	default:
 		close(s.reqStop)
+		po("%p rw NetConnWriter req.Stop closed", s)
 		return true
 	}
 }

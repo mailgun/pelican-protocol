@@ -39,6 +39,7 @@ func (s *ReverseProxy) RequestStop() bool {
 		return false
 	default:
 		close(s.reqStop)
+		po("ReverseProxy just closed s.reqStop")
 		return true
 	}
 }
@@ -82,15 +83,21 @@ func (s *ReverseProxy) finish(tunnelMap *map[string]*LongPoller) {
 
 	// the web stop is hanging: and thus hanging up finishing of the 010 / 01a tests.
 
-	// stop the web from accepting new connections, before we tell
-	// all the tunnelMap connections to stop as well.
-	s.web.Stop()
-	po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
+	// the tunnels/ServerRW/LongPoller will be holding open
+	// web connections, so if try to shutdown the web first,
+	// we'll deadlock until those connections timeout after 60 seconds.
+	// So, shutdown the LongPollers first.
 
 	// close all our downstream connections
 	for _, t := range *tunnelMap {
 		t.Stop()
+		po("%p rev stopped LongPoller %p", s, t)
 	}
+
+	// stop the web from accepting new connections, before we tell
+	// all the tunnelMap connections to stop as well.
+	s.web.Stop()
+	po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
 
 	close(s.Done)
 }

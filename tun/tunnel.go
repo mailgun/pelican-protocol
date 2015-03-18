@@ -90,8 +90,10 @@ func NewLongPoller(dest Addr) *LongPoller {
 }
 
 func (s *LongPoller) Stop() {
+	po("%p LongPoller stop received", s)
 	s.RequestStop()
 	<-s.Done
+	po("%p LongPoller stop done", s)
 }
 
 // RequestStop makes sure we only close
