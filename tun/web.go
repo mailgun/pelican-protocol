@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	// _ "net/http/pprof" // side-effect: installs handlers for /debug/pprof
@@ -25,6 +26,7 @@ type WebServer struct {
 	Cfg     WebServerConfig
 
 	Name string // distinguish for debug prints the various web server uses/at Start()
+	mut  sync.Mutex
 }
 
 type WebServerConfig struct {
@@ -94,6 +96,7 @@ func (s *WebServer) Stop() {
 		// panic on two serial Stops() under web_test.go failure situation.
 		return
 	}
+	VPrintf("in WebServer::Stop() about to request stop ... s = %p\n", s)
 	weClosed := s.RequestStop()
 	if weClosed {
 		s.tts.Close() // without weClosed check, hang here because tts is already down and gone.
@@ -106,6 +109,8 @@ func (s *WebServer) Stop() {
 }
 
 func (s *WebServer) IsStopRequested() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
 	select {
 	case <-s.requestStop:
 		return true
@@ -118,6 +123,9 @@ func (s *WebServer) IsStopRequested() bool {
 // the s.requestStop channel once. Returns
 // true iff we closed s.requestStop on this call.
 func (s *WebServer) RequestStop() bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
 	select {
 	case <-s.requestStop:
 		return false

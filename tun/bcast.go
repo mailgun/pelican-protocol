@@ -273,6 +273,7 @@ func (r *BcastServer) Start() error {
 
 			// read from the connections to service clients
 			go func(netconn net.Conn) {
+				defer po("done with bcast server read routine")
 				buf := make([]byte, 100)
 				for {
 					if r.IsStopRequested() {

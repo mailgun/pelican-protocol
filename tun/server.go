@@ -79,6 +79,11 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 // only callable from same goroutine as Start(); and
 // only callled by Start() on shutting down.
 func (s *ReverseProxy) finish(tunnelMap *map[string]*LongPoller) {
+
+	// the web stop is hanging: and thus hanging up finishing of the 010 / 01a tests.
+
+	// stop the web from accepting new connections, before we tell
+	// all the tunnelMap connections to stop as well.
 	s.web.Stop()
 	po("rev: s.web.Stop() has returned.  s.web = %p <<<<<<<<\n", s.web)
 

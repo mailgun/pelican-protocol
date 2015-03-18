@@ -203,8 +203,8 @@ func (s *Chaser) Stop() {
 
 	s.rw.Stop()
 
-	<-s.alphaDone // or 01a is hanging here
-	<-s.betaDone  // 010 is hanging here, waiting for beta to finish
+	<-s.alphaDone
+	<-s.betaDone // 010 is hanging here, waiting for beta to finish
 	<-s.monitorDone
 	s.home.Stop()
 
@@ -270,11 +270,12 @@ func (s *Chaser) startAlpha() {
 		// for reporting on s.notifyDone.
 		defer func() {
 			if !s.skipNotify {
-				//select {
-				s.notifyDone <- s
-				po("%p Alpha shutting down, after s.notifyDone <- s finished.", s)
-				//case <-time.After(10 * time.Millisecond):
-				//}
+				select {
+				case s.notifyDone <- s:
+					po("%p Alpha shutting down, after s.notifyDone <- s finished.", s)
+				case <-time.After(10 * time.Millisecond):
+					// needed in case nobody is listening for us anymore
+				}
 			}
 			close(s.alphaDone)
 			po("%p Alpha done.", s)
