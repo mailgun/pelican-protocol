@@ -1,7 +1,5 @@
 package pelicantun
 
-// ideas from gist: https://gist.github.com/seantalts/11266762
-
 import (
 	"bytes"
 	"fmt"
@@ -112,7 +110,7 @@ func (t *TimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}()
 
 	select {
-	case <-timeout: // A round trip timeout has occurred.
+	case <-timeout:
 		t.Transport.CancelRequest(req)
 		return nil, netTimeoutError{
 			error: fmt.Errorf("timed out after %s", t.RoundTripTimeout),
@@ -122,7 +120,7 @@ func (t *TimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return nil, netTimeoutError{
 			error: fmt.Errorf("ReqCancel: request cancelled at user behest"),
 		}
-	case r := <-resp: // Success!
+	case r := <-resp: // response received
 		return r.resp, r.err
 	}
 }

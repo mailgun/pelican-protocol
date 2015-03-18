@@ -97,12 +97,14 @@ type Chaser struct {
 type ChaserConfig struct {
 	ConnectTimeout   time.Duration
 	TransportTimeout time.Duration
+	BufSize          int
 }
 
 func DefaultChaserConfig() *ChaserConfig {
 	return &ChaserConfig{
 		ConnectTimeout:   2000 * time.Millisecond,
 		TransportTimeout: 60 * time.Second,
+		BufSize:          4096,
 	}
 }
 
@@ -126,7 +128,7 @@ func example_main() {
 }
 */
 
-func NewChaser(cfg ChaserConfig, conn net.Conn, bufsz int, key string, notifyDone chan *Chaser, dest Addr) *Chaser {
+func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Chaser, dest Addr) *Chaser {
 
 	if key == "" || len(key) != KeyLen {
 		panic(fmt.Errorf("NewChaser() error: key '%s' was not of expected length %d. instead: %d", key, KeyLen, len(key)))
@@ -142,7 +144,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, bufsz int, key string, notifyDon
 	rwReaderDone := make(chan *NetConnReader)
 	rwWriterDone := make(chan *NetConnWriter)
 
-	rw := NewClientRW(conn, bufsz, rwReaderDone, rwWriterDone)
+	rw := NewClientRW(conn, cfg.BufSize, rwReaderDone, rwWriterDone)
 
 	s := &Chaser{
 		rw:           rw,

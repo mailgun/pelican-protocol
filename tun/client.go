@@ -349,7 +349,7 @@ func (f *PelicanSocksProxy) Start() error {
 
 				VPrintf("in case upConn = <-f.Up.UpstreamTcpConnChan,  %v -> %v\n", upConn.RemoteAddr(), upConn.LocalAddr())
 
-				chaser := NewChaser(f.Cfg.ChaserCfg, upConn, bufSize, key, f.ChaserDoneCh, f.Cfg.Dest)
+				chaser := NewChaser(f.Cfg.ChaserCfg, upConn, key, f.ChaserDoneCh, f.Cfg.Dest)
 				chaser.Start()
 				f.chasers[chaser] = true
 				po("after add new chaser %p, len(chasers) = %d\n", chaser, len(f.chasers))
