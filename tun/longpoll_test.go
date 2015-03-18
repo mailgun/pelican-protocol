@@ -96,8 +96,12 @@ func TestLongPollToGetLowLatency01a(t *testing.T) {
 	// no port is bound checks! works!
 	cli, srv, rev, fwd, err := StartTestSystemWithBcastNoPortIsBoundChecks()
 	panicOn(err)
-	defer srv.Stop()
+
 	defer rev.Stop()
+
+	// a little out of order shutdown, for cleaner hang diagnostics.
+	defer srv.Stop()
+
 	defer fwd.Stop()
 
 	<-srv.FirstClient
