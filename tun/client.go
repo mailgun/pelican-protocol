@@ -365,7 +365,8 @@ func (f *PelicanSocksProxy) Start() error {
 				}
 				delete(f.chasers, thisChaserIsDone)
 				po("chaser stopped and deleted: %p. after delete, len(chasers) = %d", thisChaserIsDone, len(f.chasers))
-
+				// let ClientHome shutdown too. Calling Stop() makes sure.
+				thisChaserIsDone.Stop()
 				//f.redoAlarm()
 
 			case <-f.reqStop:

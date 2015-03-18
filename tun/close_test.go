@@ -42,6 +42,7 @@ func TestPelicanSocksProxyHandlesClientConnectionClose006(t *testing.T) {
 
 	cv.Convey("Given a started PelicanSocksProxy, we should handle Close of the socket after Accept gracefully\n", t, func() {
 
+		// there is still a race here; sometimes the client count gets to 1 before we can check that it is 0.
 		po("\n\n at the start of the close_test, we should not have any clients registered, right??: %d\n\n", len(fwd.chasers))
 		err := fwd.WaitForClientCount(0, time.Second*2)
 		cv.So(err, cv.ShouldEqual, nil)
@@ -124,7 +125,7 @@ func TestPelicanSocksProxyHandlesClientConnectionCloseSuperSimple020(t *testing.
 	})
 }
 
-// repeat 006 with mods so we can see where the connection is being
+// 031: repeat 006 with mods so we can see where the connection is being
 // held open on shutdown.
 func TestPelicanSocksProxyHandlesClientConnectionClose031(t *testing.T) {
 

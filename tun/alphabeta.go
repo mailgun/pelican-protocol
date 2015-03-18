@@ -198,7 +198,7 @@ func (s *Chaser) StopWithoutReporting() {
 
 // Stop the Chaser.
 func (s *Chaser) Stop() {
-	fmt.Printf("\n\n Chaser %p stopping.\n", s)
+	po("%p Chaser stopping.\n", s)
 
 	s.RequestStop()
 
@@ -277,7 +277,7 @@ func (s *Chaser) startAlpha() {
 				select {
 				case s.notifyDone <- s:
 					po("%p Alpha shutting down, after s.notifyDone <- s finished.", s)
-				case <-time.After(10 * time.Millisecond):
+				case <-time.After(1000 * time.Millisecond):
 					// needed in case nobody is listening for us anymore
 				}
 			}
@@ -533,6 +533,7 @@ func NewClientHome() *ClientHome {
 }
 
 func (s *ClientHome) Stop() {
+	po("%p client home stop requested", s)
 	s.RequestStop()
 	<-s.Done
 }
@@ -558,6 +559,8 @@ func (s *ClientHome) String() string {
 }
 
 func (s *ClientHome) Start() {
+	po("%p home starting.", s)
+
 	go func() {
 		defer func() {
 			po("%p home done.", s)
