@@ -73,7 +73,7 @@ func (s *WebServer) Start(webName string) {
 		return
 	}
 	s.started = true
-	po("WebServer::Start('%s') begun, for s = %p.\n", webName, s)
+	po("WebServer::Start('%s') begun, for s = %p.  Listen: %v", webName, s, s.Cfg.Listen.IpPort)
 
 	go func() {
 		err := s.tts.ListenAndServe()

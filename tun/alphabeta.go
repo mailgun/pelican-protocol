@@ -556,7 +556,7 @@ func (s *ClientHome) Start() {
 			po("%p home done.", s)
 		}()
 		for {
-			select { // 010 is blocked here. 01a too.
+			select { // 010 is blocked here. 01a too. 006 too.
 
 			case s.IsAlphaHome <- s.alphaHome:
 			case s.IsBetaHome <- s.betaHome:
@@ -691,7 +691,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 	url := "http://" + s.dest.IpPort + "/" + urlPath
 	resp, err := http.Post(url, "application/octet-stream", req)
 
-	po("in DoRequestResponse(url='%s') just after Post", urlPath)
+	po("in DoRequestResponse(url='%s') just after Post. key = '%s'", urlPath, string(s.key[:5]))
 
 	defer func() {
 		if resp != nil && resp.Body != nil {

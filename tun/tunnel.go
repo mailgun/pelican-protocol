@@ -183,6 +183,7 @@ func (s *LongPoller) Start() error {
 			case s.rw.SendToDownCh() <- pack.body:
 			case <-time.After(wait):
 				po("unable to send to downstream in receiveOnPacket after '%v'; aborting\n", wait)
+				close(pack.done)
 				return
 			}
 

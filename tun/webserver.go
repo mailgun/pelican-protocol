@@ -78,6 +78,7 @@ func NewCustomHttpServer(addr string, handler http.Handler, readTimeout time.Dur
 	s.ConnState = func(conn net.Conn, state http.ConnState) {
 		switch state {
 		case http.StateNew:
+			po("s.wg.Add called for conn: remote %v -> %v local", conn.RemoteAddr(), conn.LocalAddr())
 			s.wg.Add(1)
 		case http.StateActive:
 			s.mu.Lock()
@@ -94,6 +95,7 @@ func NewCustomHttpServer(addr string, handler http.Handler, readTimeout time.Dur
 				s.mu.Unlock()
 			}
 		case http.StateHijacked, http.StateClosed:
+			po("s.wg.Done() called for conn: remote %v -> %v local", conn.RemoteAddr(), conn.LocalAddr())
 			s.wg.Done()
 		}
 	}

@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	web.Start()
+	web.Start("cmd web web-server: ping->pong")
 
 	fmt.Printf("web serving 'ping' with 'pong'; listening forever: doing 'select {}'. Use ctrl-c to stop.\n")
 
