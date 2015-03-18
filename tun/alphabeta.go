@@ -278,6 +278,7 @@ func (s *Chaser) startAlpha() {
 			}
 			// cancel any outstanding http req, and close idle connections
 			s.httpClient.CancelAllReq()
+			s.httpClient.CloseIdleConnections()
 			close(s.alphaDone)
 			po("%p Alpha done.", s)
 		}()

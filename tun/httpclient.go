@@ -42,6 +42,9 @@ func (s *HttpClientWithTimeout) CancelAllReq() {
 	s.trans.ReqCancel <- true
 }
 
+func (s *HttpClientWithTimeout) NumDials() int64 {
+	return s.trans.NumDials
+}
 func (s *HttpClientWithTimeout) Post(url string, contentType string, body *bytes.Buffer) (*http.Response, error) {
 
 	req, err := http.NewRequest("POST", url, body)
@@ -70,20 +73,27 @@ func (s *HttpClientWithTimeout) Post(url string, contentType string, body *bytes
 }
 
 func NewTimeoutTransport(roundTo time.Duration) *TimeoutTransport {
-	return &TimeoutTransport{
-		Transport: http.Transport{
-			Dial:  defaultDialerWithTimeout.Dial,
-			Proxy: http.ProxyFromEnvironment,
-		},
+	s := &TimeoutTransport{
 		RoundTripTimeout: roundTo,
 		ReqCancel:        make(chan bool, 100),
 	}
+
+	s.Transport = http.Transport{
+		Dial: func(netw, addr string) (net.Conn, error) {
+			po("TimeoutTransport: dial to %s://%s", netw, addr)
+			s.NumDials++
+			return defaultDialerWithTimeout.Dial(netw, addr)
+		},
+		Proxy: http.ProxyFromEnvironment,
+	}
+	return s
 }
 
 type TimeoutTransport struct {
 	http.Transport
 	RoundTripTimeout time.Duration
 	ReqCancel        chan bool
+	NumDials         int64
 }
 
 type respAndErr struct {
