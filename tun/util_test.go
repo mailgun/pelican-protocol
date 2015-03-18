@@ -96,7 +96,7 @@ func StartTestSystemWithBcast() (*BcastClient, *BcastServer, *ReverseProxy, *Pel
 
 		ChaserCfg: ChaserConfig{
 			ConnectTimeout:   200 * time.Millisecond,
-			TransportTimeout: 200 * time.Second},
+			TransportTimeout: 200 * time.Millisecond},
 	})
 	fwd.Start()
 
