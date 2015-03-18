@@ -92,7 +92,7 @@ type Chaser struct {
 	mut sync.Mutex
 	cfg ChaserConfig
 
-	httpClient *TimeoutClient
+	httpClient *HttpClientWithTimeout
 }
 
 type ChaserConfig struct {
@@ -167,7 +167,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, bufsz int, key string, notifyDon
 		key:         key,
 		notifyDone:  notifyDone,
 		cfg:         cfg,
-		httpClient:  NewTimeoutClient(cfg.TransportTimeout),
+		httpClient:  NewHttpClientWithTimeout(cfg.TransportTimeout),
 	}
 
 	po("\n\n Chaser %p gets NewRW() = %p with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
@@ -689,7 +689,21 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 	po("in DoRequestResponse(url='%s') just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v\n", urlPath, string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout)
 
 	url := "http://" + s.dest.IpPort + "/" + urlPath
+
 	resp, err := http.Post(url, "application/octet-stream", req)
+
+	//resp, err := http.Post(url, "application/octet-stream", req)
+
+	/*
+		goreq.SetConnectTimeout(s.cfg.ConnectTimeout)
+		resp, err := goreq.Request{
+			Method:      "POST",
+			Uri:         "http://" + s.dest.IpPort + "/" + urlPath,
+			ContentType: "application/octet-stream",
+			Body:        req,
+			Timeout:     s.cfg.TransportTimeout,
+		}.Do()
+	*/
 
 	po("in DoRequestResponse(url='%s') just after Post. key = '%s'", urlPath, string(s.key[:5]))
 
