@@ -13,7 +13,7 @@ import (
 func TestServerSideWebSiteMockStartsUp004(t *testing.T) {
 	cv.Convey("When we start a web server on the server side, we should be able to reach it with an http request", t, func() {
 
-		web, err := NewWebServer(WebServerConfig{}, nil, specialFastTestReadTimeout)
+		web, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
 		panicOn(err)
 		web.Start("most-downstream-target")
 		cv.So(PortIsBound(web.Cfg.Listen.IpPort), cv.ShouldEqual, true)
@@ -41,7 +41,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
+	web, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
 	panicOn(err)
 	web.Start("ultimate-webserver-mock")
 	defer web.Stop()

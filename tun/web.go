@@ -30,10 +30,11 @@ type WebServer struct {
 }
 
 type WebServerConfig struct {
-	Listen Addr
+	Listen      Addr
+	ReadTimeout time.Duration
 }
 
-func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Duration) (*WebServer, error) {
+func NewWebServer(cfg WebServerConfig, mux *http.ServeMux) (*WebServer, error) {
 
 	if mux == nil {
 		mux = http.NewServeMux()
@@ -61,7 +62,7 @@ func NewWebServer(cfg WebServerConfig, mux *http.ServeMux, readTimeout time.Dura
 		requestStop: make(chan bool),
 	}
 
-	s.tts = NewCustomHttpServer(s.Cfg.Listen.IpPort, mux, readTimeout)
+	s.tts = NewCustomHttpServer(s.Cfg.Listen.IpPort, mux, s.Cfg.ReadTimeout)
 	//s.tts = NewCustomHttpServer(s.Cfg.Addr, http.DefaultServeMux) // supply debug/pprof diagnostics
 
 	return s, nil

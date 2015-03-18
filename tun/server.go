@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type ReverseProxyConfig struct {
@@ -253,9 +254,12 @@ func (s *ReverseProxy) startExternalHttpListener() {
 	mux.HandleFunc("/create", createHandler)
 	mux.HandleFunc("/closekey", closeKeyHandler)
 
-	webcfg := WebServerConfig{Listen: s.Cfg.Listen}
+	webcfg := WebServerConfig{
+		Listen:      s.Cfg.Listen,
+		ReadTimeout: 1 * time.Second,
+	}
 	var err error
-	s.web, err = NewWebServer(webcfg, mux, DefaultWebReadTimeout)
+	s.web, err = NewWebServer(webcfg, mux)
 	panicOn(err)
 	//VPrintf("\n Server::createHandler(): about to w.web.Start() with webcfg = '%#v'\n", webcfg)
 	s.web.Start("ReverseProxy")

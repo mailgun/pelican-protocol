@@ -90,14 +90,19 @@ func (cli *BcastClient) Start() {
 					if err != nil {
 						fmt.Printf("err = '%#v'/%T\n", err, err) // '&errors.errorString{s:"EOF"}'
 					}
-					panic(err) // client gets 'EOF' when server closes the connection. '&errors.errorString{s:"EOF"}'
+					// don't panic(err) // don't panic b/c client gets 'EOF' when server closes the connection. '&errors.errorString{s:"EOF"}'
 				}
 			}
-			//po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
+			po("\n bcast_client: after Read, isTimeout: %v, err: %v\n", isTimeout, err)
 
 			if !isTimeout {
 				cli.lastMsg = string(buf[:n])
-				close(cli.MsgRecvd)
+				// only close once
+				select {
+				case <-cli.MsgRecvd:
+				default:
+					close(cli.MsgRecvd)
+				}
 				po("\n bcast_client: message received!!! after cli.Start() got to Read '%s' from conn. n = %d bytes\n", cli.lastMsg, n)
 			}
 

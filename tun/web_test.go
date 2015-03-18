@@ -19,7 +19,7 @@ func TestWebServer888(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	s, err := NewWebServer(WebServerConfig{}, mux, specialFastTestReadTimeout)
+	s, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
 	panicOn(err)
 	s.Start("ping-test-webserver")
 	defer s.Stop()
@@ -41,7 +41,7 @@ func TestWebServer888(t *testing.T) {
 
 func TestWebServerPortAlreadyTakenDetected801(t *testing.T) {
 
-	s, err := NewWebServer(WebServerConfig{}, nil, specialFastTestReadTimeout)
+	s, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
 	panicOn(err)
 	s.Start("test-webserver")
 	defer s.Stop()
@@ -51,7 +51,7 @@ func TestWebServerPortAlreadyTakenDetected801(t *testing.T) {
 
 			cv.So(PortIsBound(s.Cfg.Listen.IpPort), cv.ShouldEqual, true)
 
-			_, err := NewWebServer(WebServerConfig{Listen: s.Cfg.Listen}, nil, specialFastTestReadTimeout)
+			_, err := NewWebServer(WebServerConfig{Listen: s.Cfg.Listen, ReadTimeout: specialFastTestReadTimeout}, nil)
 			cv.So(err, cv.ShouldNotEqual, nil)
 			fmt.Printf("err = '%s'\n", err)
 			cv.So(strings.HasPrefix(err.Error(), "NewWebServer error: could not start because port already in-use"), cv.ShouldEqual, true)
