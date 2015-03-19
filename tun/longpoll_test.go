@@ -182,6 +182,11 @@ func TestLongPollKeepsFifoOrdering016(t *testing.T) {
 		po("TestLongPollKeepsFifoOrdering016: done with %d roundtrips", N)
 		cv.So(msg, cv.ShouldEqual, msg)
 
+		po("client history:")
+		cli.ShowTmHistory()
+
+		po("server history:")
+		srv.ShowTmHistory()
 	})
 
 }
