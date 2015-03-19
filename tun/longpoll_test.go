@@ -146,10 +146,9 @@ func TestLongPollToGetLowLatency01a(t *testing.T) {
 	})
 }
 
-/*
 func TestLongPollKeepsFifoOrdering016(t *testing.T) {
 
-	cli, srv, rev, fwd, err := StartTestSystemWithBcast()
+	cli, srv, rev, fwd, err := StartTestSystemWithCountingServer()
 	panicOn(err)
 	defer srv.Stop()
 	defer rev.Stop()
@@ -158,38 +157,34 @@ func TestLongPollKeepsFifoOrdering016(t *testing.T) {
 	cv.Convey("Test ordering discipline for long-polling: Given a ForwardProxy and a ReverseProxy communicating over http, in order to acheive low-latency sends from server to client, long-polling with two sockets (one send and one receive) should be used. The two long polling sockets should still observe a first-to-send is first-to-get-a-reply order discipline.\n", t, func() {
 		cli.Start()
 		defer cli.Stop()
-		<-srv.FirstClient
+		<-srv.FirstCountingClientSeen
 
-		po("got past <-srv.FirstClient\n")
+		po("got past <-srv.FirstCountingClientClient\n")
 
-		defer func() { po("deferred frunction running...!\n") }()
+		msg := ""
 
-		msg := "BREAKING NEWS"
-		srv.Bcast(msg)
+		// fetch 10 messages
+		N := 10
+		for i := 0; i < N; i++ {
+			select {
+			case msg := <-cli.MsgRecvd:
+				// excellent
+				po("CountingTestClient got a message! client saw: '%s'", msg)
+			case <-time.After(time.Second * 2):
+				po("CountingTestClient: We waited 2 seconds, bailing.")
+				srv.Stop()
+				// should have gotten a message from the server at the client by now.
 
-		// wait for message to get from server to client.
-		select {
-		case <-cli.MsgRecvd:
-			// excllent
-			po("excellent, cli got a message!\n")
-			po("client saw: '%s'", cli.LastMsgReceived())
-		case <-time.After(time.Second * 2):
-			po("\n\nWe waited 2 seconds, bailing.\n")
-			srv.Stop()
-			// should have gotten a message from the server at the client by now.
-
-			panic("should have gotten a message from the server at the client by now!")
-			cv.So(cli.LastMsgReceived(), cv.ShouldEqual, msg)
+				panic("should have gotten a message from the server at the client by now!")
+			}
 		}
 
-		cv.So(cli.LastMsgReceived(), cv.ShouldEqual, msg)
+		po("TestLongPollKeepsFifoOrdering016: done with %d roundtrips", N)
+		cv.So(msg, cv.ShouldEqual, msg)
 
 	})
 
-	//	fmt.Printf("Given a Forward and Reverse proxy, in order to avoid creating new sockets too often (expensive), we should re-use the existing sockets for up to 5 round trips in 30 seconds.")
 }
-
-*/
 
 // dup of 10 we can modify
 func TestLongPollToGetLowLatency111dup(t *testing.T) {

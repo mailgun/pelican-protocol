@@ -720,7 +720,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 
 	body, err := ioutil.ReadAll(resp.Body)
 	panicOn(err)
-	po("client: resp.Body = '%s'\n", string(body))
+	po("%p chaser '%s' / '%s', resp.Body = '%s'\n", s, s.key[:5], s.rw.name, string(body))
 
 	return body, err
 }

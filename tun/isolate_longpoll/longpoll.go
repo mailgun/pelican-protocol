@@ -147,14 +147,15 @@ func (s *LongPoller) Start() error {
 	}
 
 	// s.dial() sets s.conn on success.
-	s.rw = NewServerRW(s.conn, 0, nil, nil)
+	s.rw = NewServerRW("ServerRW/LongPoller", s.conn, 0, nil, nil, s)
 	s.rw.Start()
 
 	go func() {
 		defer func() { s.finish() }()
 
 		// duration of the long poll
-		longPollTimeUp := time.After(s.pollDur)
+
+		longPollTimeUp := time.NewTimer(s.pollDur)
 
 		var pack *tunnelPacket
 
@@ -172,7 +173,7 @@ func (s *LongPoller) Start() error {
 
 		sendReplyUpstream := func() {
 			if oldestReqPack != nil {
-				po("%p '%s' LongPoll::Start(): sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
+				po("%p '%s' longpoller sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
 				close(oldestReqPack.done) // send!
 				countForUpstream = 0
 				if len(waitingCliReqs) > 0 {
@@ -180,7 +181,7 @@ func (s *LongPoller) Start() error {
 					waitingCliReqs = waitingCliReqs[1:]
 				} else {
 					oldestReqPack = nil
-					longPollTimeUp = nil
+					longPollTimeUp.Stop()
 				}
 			}
 		}
@@ -195,8 +196,8 @@ func (s *LongPoller) Start() error {
 			}
 			select {
 
-			case <-longPollTimeUp:
-				po("longPollTimeUp!!")
+			case <-longPollTimeUp.C:
+				po("%p '%s' longPollTimeUp!!", s, skey)
 				sendReplyUpstream()
 
 			// Only receive if we have a waiting packet body to write to.
@@ -228,15 +229,16 @@ func (s *LongPoller) Start() error {
 
 				// reset timer. only hold this packet open for at most 'dur' time.
 				// since we will be replying to oldestReqPack (if any) immediately,
-				// we can replace this timer.
-				// TODO: is their a simpler reset instead of replace the timer?
-				longPollTimeUp = time.After(s.pollDur)
+				// we can reset the timer to reflect pack's arrival.
+				longPollTimeUp.Reset(s.pollDur)
 
 				po("%p '%s' LongPoller, just received ClientPacket with pack.body = '%s'\n", s, skey, string(pack.body))
 
 				// have to both send and receive
 
 				pack.resp.Header().Set("Content-type", "application/octet-stream")
+
+				po("%p '%s' just before s.rw.SendToDownCh()", s, skey)
 
 				// we got data from the client for server!
 				// read from the request body and write to the ResponseWriter
@@ -245,11 +247,13 @@ func (s *LongPoller) Start() error {
 				// in fact we do want the back pressure to keep us from
 				// writing too much too fast.
 				case s.rw.SendToDownCh() <- pack.body:
-
+					po("%p '%s' sent data on s.rw.SendToDownCh()", s, skey)
 				case <-s.reqStop:
+					po("%p '%s' got reqStop, *not* returning", s, skey)
 					// avoid deadlock on shutdown, but do
 					// finish processing this packet, don't return yet
 				}
+				po("%p '%s' just after s.rw.SendToDownCh()", s, skey)
 
 				// transfer data from server to client
 
@@ -278,6 +282,8 @@ func (s *LongPoller) Start() error {
 					}
 
 				case <-time.After(10 * time.Millisecond):
+					po("%p '%s' after 10msec of extra s.rw.RecvFromDownCh() reads", s, skey)
+
 					// stop trying to read from server downstream, and send what
 					// we got upstream to client.
 				}
@@ -290,6 +296,7 @@ func (s *LongPoller) Start() error {
 
 				// end case pack = <-s.ClientPacketRecvd:
 			case <-s.reqStop:
+				po("%p '%s' got reqStop, returning", s, skey)
 				return
 			case <-s.CloseKeyChan:
 				po("%p '%s' LongPoller in nil packet state, got closekeychan. Shutting down.", s, skey)

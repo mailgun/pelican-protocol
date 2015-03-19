@@ -9,23 +9,6 @@ import (
 	cv "github.com/glycerine/goconvey/convey"
 )
 
-// print out shortcut
-func po(format string, a ...interface{}) {
-	if Verbose {
-		TSPrintf("\n\n"+format+"\n\n", a...)
-	}
-}
-
-type tunnelPacket struct {
-	resp    http.ResponseWriter
-	respdup *bytes.Buffer // duplicate resp here, to enable testing
-
-	request *http.Request
-	body    []byte
-	key     string // separate from body
-	done    chan bool
-}
-
 func TestLongPollerWorksStandAlone041(t *testing.T) {
 
 	cv.Convey("Given a LongPoller stand alone, it should pass bytes to the downstream server, and return replies from downstream to upstream", t, func() {
@@ -53,13 +36,26 @@ func TestLongPollerWorksStandAlone041(t *testing.T) {
 		}
 
 		s.ClientPacketRecvd <- pack
-
 		<-pack.done
-
 		po("got back: '%s'", pack.respdup.Bytes())
 
 		// we should get back the body
 		cv.So(string(pack.respdup.Bytes()), cv.ShouldResemble, string(body)+"0")
 
+		msg := "yaba daba"
+		pack2 := &tunnelPacket{
+			resp:    c,
+			respdup: new(bytes.Buffer),
+			request: r,
+			body:    []byte(msg),
+			done:    make(chan bool),
+			key:     "longpoll_test_key",
+		}
+
+		s.ClientPacketRecvd <- pack2
+		<-pack2.done
+		po("got back: '%s'", pack2.respdup.Bytes())
+
+		cv.So(string(pack2.respdup.Bytes()), cv.ShouldResemble, msg+"1")
 	})
 }

@@ -145,3 +145,43 @@ func StartTestSystemWithBcastNoPortIsBoundChecks() (*BcastClient, *BcastServer, 
 
 	return cli, srv, rev, fwd, nil
 }
+
+func StartTestSystemWithCountingServer() (*CountingTestClient, *CountingTestServer, *ReverseProxy, *PelicanSocksProxy, error) {
+
+	// start broadcast server (to test long-poll functionality/server initiated message)
+	srv := NewCountingTestServer(Addr{})
+	srv.Start()
+
+	// start a reverse proxy
+	rev := NewReverseProxy(ReverseProxyConfig{Dest: srv.Listen})
+	rev.Start()
+
+	// these checks actually stress out the system in a way that made it fail
+	// so we maintain a with and without check version for now. (See below
+	// in StartTestSystemWithCountingTestNoPortIsBoundChecks() for the version without
+	// the PortIsBound() checks.
+	//
+	if !PortIsBound(rev.Cfg.Listen.IpPort) {
+		panic("rev proxy not up")
+	}
+
+	// start the forward proxy, talks to the reverse proxy.
+	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
+		Dest: rev.Cfg.Listen,
+
+		// timeouts should be generous, or else we'll have problems.
+		ChaserCfg: ChaserConfig{
+			ConnectTimeout:   2000 * time.Millisecond,
+			TransportTimeout: 60000 * time.Millisecond},
+	})
+	fwd.Start()
+
+	if !PortIsBound(fwd.Cfg.Listen.IpPort) {
+		panic("fwd proxy not up")
+	}
+
+	// start broadcast client (to test receipt of long-polled data from server)
+	cli := NewCountingTestClient(Addr{Port: fwd.Cfg.Listen.Port})
+
+	return cli, srv, rev, fwd, nil
+}

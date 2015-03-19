@@ -255,7 +255,7 @@ func (s *NetConnReader) Start() {
 			err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
 			panicOn(err)
 
-			n64, err := s.conn.Read(buf) // 010 is looping here, trying to read in rev. Yes still.
+			n64, err := s.conn.Read(buf)
 			if IsTimeout(err) {
 				if n64 != 0 {
 					panic(fmt.Errorf("unexpected: got timeout and read of %d bytes back", n64))
@@ -445,7 +445,7 @@ func (s *NetConnWriter) Start() {
 
 		for {
 
-			select { // 010 is blocked here. Yes still.
+			select {
 			case buf = <-s.upReadToDnWrite:
 			case <-s.reqStop:
 				return
