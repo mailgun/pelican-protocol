@@ -295,7 +295,7 @@ func (f *PelicanSocksProxy) ConnectDownstreamHttp() (string, error) {
 		return "", fmt.Errorf("ConnectDownstreamHttp: error during Post to '%s': '%s'; body: '%s'", url, resp.Status, string(key))
 	}
 
-	log.Printf("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x'... (string: '%s'...) of len %d\n\n", key[:5], string(key[:5]), len(key))
+	po("client/PSP: ConnectDownstreamHttp: after Post('/create') we got ResponseWriter with key = '%x'... (string: '%s'...) of len %d\n\n", key[:5], string(key[:5]), len(key))
 
 	return string(key), nil
 }

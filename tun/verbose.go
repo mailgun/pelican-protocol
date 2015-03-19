@@ -8,7 +8,7 @@ import (
 var TempDisablePortIsBoundChecks bool = true
 
 // for debug output
-var Verbose bool = true
+var Verbose bool
 
 // get timestamp for logging purposes
 func ts() string {
