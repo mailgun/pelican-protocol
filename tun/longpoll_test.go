@@ -207,9 +207,12 @@ func TestLongPollToGetLowLatency111dup(t *testing.T) {
 	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
 		Dest: rev.Cfg.Listen,
 
+		// if these are shorter than the long-poll interval, or
+		// too short in general, it can make problems. like roundtrip
+		// test 010 not passing.
 		ChaserCfg: ChaserConfig{
-			ConnectTimeout:   2000 * time.Millisecond,
-			TransportTimeout: 2000 * time.Millisecond},
+			ConnectTimeout:   60000 * time.Millisecond,
+			TransportTimeout: 60000 * time.Millisecond},
 	})
 	fwd.Start()
 
@@ -234,6 +237,7 @@ func TestLongPollToGetLowLatency111dup(t *testing.T) {
 	<-srv.SecondClient
 	po("got past <-srv.SecondClient\n")
 
+	time.Sleep(3 * time.Second)
 	msg := "BREAKING NEWS"
 	srv.Bcast(msg)
 

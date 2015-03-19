@@ -49,7 +49,13 @@ func StartTestSystemWithPing() (*WebServer, *ReverseProxy, *PelicanSocksProxy, e
 	// start the forward proxy, talks to the reverse proxy.
 	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
 		Dest: rev.Cfg.Listen,
+
+		// timeouts should be generous, or else we'll have problems.
+		ChaserCfg: ChaserConfig{
+			ConnectTimeout:   2000 * time.Millisecond,
+			TransportTimeout: 60000 * time.Millisecond},
 	})
+
 	fwd.Start()
 	if !PortIsBound(fwd.Cfg.Listen.IpPort) {
 		panic("fwd proxy not up")
@@ -94,9 +100,10 @@ func StartTestSystemWithBcast() (*BcastClient, *BcastServer, *ReverseProxy, *Pel
 	fwd := NewPelicanSocksProxy(PelicanSocksProxyConfig{
 		Dest: rev.Cfg.Listen,
 
+		// timeouts should be generous, or else we'll have problems.
 		ChaserCfg: ChaserConfig{
 			ConnectTimeout:   2000 * time.Millisecond,
-			TransportTimeout: 2000 * time.Millisecond},
+			TransportTimeout: 60000 * time.Millisecond},
 	})
 	fwd.Start()
 
@@ -127,8 +134,8 @@ func StartTestSystemWithBcastNoPortIsBoundChecks() (*BcastClient, *BcastServer, 
 		Dest: rev.Cfg.Listen,
 
 		ChaserCfg: ChaserConfig{
-			ConnectTimeout:   200 * time.Millisecond,
-			TransportTimeout: 200 * time.Millisecond},
+			ConnectTimeout:   2000 * time.Millisecond,
+			TransportTimeout: 60000 * time.Millisecond},
 	})
 
 	fwd.Start()

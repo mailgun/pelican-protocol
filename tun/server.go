@@ -203,7 +203,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		}
 
 		tunnel := NewLongPoller(s.Cfg.Dest, s.Cfg.LongPollDur)
-		po("%p '%s' LongPoller NewLongPoller just called, returning me.", tunnel, string(tunnel.key[:5]))
+		po("%p '%s' LongPoller NewLongPoller just called, returning me. RemoteAddr: '%s'", tunnel, string(tunnel.key[:5]), r.RemoteAddr)
 
 		err = tunnel.Start()
 		if err != nil {

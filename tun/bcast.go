@@ -95,7 +95,7 @@ func (cli *BcastClient) Start() {
 			default:
 				panic(err)
 			}
-			//po("\n bcast_client: after Read, isTimeout: %v, isEOF: %v, err: %v\n", isTimeout, isEOF, err)
+			po("bcast_client: after Read, isTimeout: %v, isEOF: %v, err: %v\n", isTimeout, isEOF, err)
 
 			if !isTimeout && !isEOF {
 				cli.lastMsg = string(buf[:n])
