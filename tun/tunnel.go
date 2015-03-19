@@ -149,104 +149,215 @@ func (s *LongPoller) Start() error {
 	go func() {
 		defer func() { s.finish() }()
 
+		// duration of the long poll
+		dur := 30 * time.Second
+		longPollTimeUp := time.After(dur)
+
 		var pack *tunnelPacket
+
+		// in cliReq and bytesFromServer, the client is upstream and the
+		// server is downstream. In LongPoller, we read from the server
+		// and write those bytes in Replies to the client. In LongPoller, we read
+		// from the client Requests and write those bytes to the server.
+
+		// keep at most 2 cliRequests on hand, cycle them in FIFO order.
+		waitingCliReqs := make([]*tunnelPacket, 0, 2)
+		var oldestReqPack *tunnelPacket
+		var countForUpstream int64
 
 		for {
 			po("at top of LongPoller loop, inside Start()")
-			if pack == nil {
-				// special case of first time through: no client packet has arrived.
-				//
-				// Or: we've replied to our last packet because the server had
-				// something to say, and thus we have no pending packet available
-				// for when the server has something more to say.
-				//
-				// In either case, we can't grab content from the downstream
-				// server until we have a client packet to reply with.
-				select { // 010 is blocked here
-				case pack = <-s.ClientPacketRecvd:
-				case <-s.reqStop:
-					return
-				case <-s.CloseKeyChan:
-					po("tunnel.go: LongPoller in nil packet state, got closekeychan. Shutting down.")
-					return
-				}
-			}
-
-			// INVAR: pack is not nil
-			if pack == nil {
-				panic("pack should never nil at this point")
-			}
-
-			po("in tunnel::handle(pack) with pack.body = '%s'\n", string(pack.body))
-			// read from the request body and write to the ResponseWriter
-
-			wait := 10 * time.Second
-			select {
-			case s.rw.SendToDownCh() <- pack.body:
-			case <-time.After(wait):
-				po("unable to send to downstream in receiveOnPacket after '%v'; aborting\n", wait)
-				close(pack.done)
-				return
-			}
-
-			// read out of the buffer and write it to dnConn
-			pack.resp.Header().Set("Content-type", "application/octet-stream")
-
-			// wait for a read for a possibly long duration. this is the "long poll" part.
-			dur := 30 * time.Second
-			// the client will spin up another goroutine/thread/sender if it has
-			// an additional send in the meantime.
-
-			po("LongPoll::Start(): tunnel.go starting to wait up to %v", dur)
-
-			var n64 int64
-			longPollTimeUp := time.After(dur)
 
 			select {
-			case <-s.reqStop:
-				close(pack.done)
-				pack = nil
-				return
-
-			case b500 := <-s.rw.RecvFromDownCh():
-				po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
-
-				n64 += int64(len(b500))
-				_, err := pack.resp.Write(b500)
-				if err != nil {
-					panic(err)
-				}
-
-				_, err = pack.respdup.Write(b500)
-				if err != nil {
-					panic(err)
-				}
-				close(pack.done)
-				pack = nil
 
 			case <-longPollTimeUp:
 				po("tunnel.go: longPollTimeUp!!\n")
-				// send it along its way anyhow
-				close(pack.done)
-				pack = nil
+				if oldestReqPack != nil {
+					close(oldestReqPack.done) // send reply!
+					if len(waitingCliReqs) > 0 {
+						oldestReqPack = waitingCliReqs[0]
+						waitingCliReqs = waitingCliReqs[1:]
+					} else {
+						oldestReqPack = nil
+					}
+				}
 
-			case <-s.CloseKeyChan:
-				po("tunnel.go: LongPoller with pending packet got closekey. returning packet and then exiting LongPoller")
-				close(pack.done)
-				pack = nil
-				return
+			// Only receive if we have a waiting packet body to write to.
+			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
+			case b500 := <-func() chan []byte {
+				if oldestReqPack != nil {
+					return s.rw.RecvFromDownCh()
+				} else {
+					return nil
+				}
+			}():
+				po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
 
-			case newpacket := <-s.ClientPacketRecvd:
-				po("tunnel.go: <-s.ClientPakcetRecvd!!: %#v\n", newpacket)
+				countForUpstream += int64(len(b500))
+				_, err := oldestReqPack.resp.Write(b500)
+				if err != nil {
+					panic(err)
+				}
+
+				_, err = oldestReqPack.respdup.Write(b500)
+				if err != nil {
+					panic(err)
+				}
+
+			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
-				// finish previous packet without data, because client sent another packet
-				close(pack.done)
-				pack = newpacket
-			}
 
-			po("LongPoll::Start(): at end of select/long wait.")
-		}
+				// reset timer. only hold this packet open for at most 'dur' time.
+				// since we will be replying to oldestReqPack (if any) immediately,
+				// we can replace this timer.
+				// TODO: is their a simpler reset instead of replace the timer?
+				longPollTimeUp = time.After(dur)
+
+				po("in LongPoller, just receive ClientPacket with pack.body = '%s'\n", string(pack.body))
+
+				// have to both send and receive
+
+				pack.resp.Header().Set("Content-type", "application/octet-stream")
+
+				// we got data from the client for server!
+				// read from the request body and write to the ResponseWriter
+				select {
+				// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
+				// in fact we do want the back pressure to keep us from
+				// writing too much too fast.
+				case s.rw.SendToDownCh() <- pack.body:
+
+				case <-s.reqStop:
+					// avoid deadlock on shutdown, but do
+					// finish processing this packet, don't return yet
+				}
+
+				// transfer data from server to client
+
+				// get the oldest packet, and reply using that. http requests
+				// get serviced mostly FIFO this way, and our long-poll
+				// timer reflects the time since the most recent packet
+				// arrival.
+				waitingCliReqs = append(waitingCliReqs, pack)
+				oldestReqPack = waitingCliReqs[0]
+				waitingCliReqs = waitingCliReqs[1:]
+
+				// add any data from the next 10 msec to return packet to client
+				select {
+				case b500 := <-s.rw.RecvFromDownCh():
+					po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
+
+					countForUpstream += int64(len(b500))
+					_, err := oldestReqPack.resp.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+
+					_, err = oldestReqPack.respdup.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+
+				case <-time.After(10 * time.Millisecond):
+					// stop trying to read from server downstream, and send what
+					// we got upstream to client.
+				}
+
+				if countForUpstream > 0 || len(waitingCliReqs) > 0 {
+
+					// SEND reply! (by closing oldestReq.done)
+
+					po("LongPoll::Start(): sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", countForUpstream, len(waitingCliReqs))
+					close(oldestReqPack.done) // send!
+					countForUpstream = 0
+					if len(waitingCliReqs) > 0 {
+						oldestReqPack = waitingCliReqs[0]
+						waitingCliReqs = waitingCliReqs[1:]
+					} else {
+						oldestReqPack = nil
+						longPollTimeUp = nil
+					}
+				}
+
+				// end case pack = <-s.ClientPacketRecvd:
+			case <-s.reqStop:
+				return
+			case <-s.CloseKeyChan:
+				po("tunnel.go: LongPoller in nil packet state, got closekeychan. Shutting down.")
+
+				// empty out the oldest and wait queue, replying to zero, one, or both requests.
+				if oldestReqPack != nil {
+					close(oldestReqPack.done)
+					for _, p := range waitingCliReqs {
+						close(p.done)
+					}
+					waitingCliReqs = waitingCliReqs[len(waitingCliReqs):]
+					oldestReqPack = nil
+				}
+				return
+			} //end select
+		} // end for
+
+		/*
+				// *** not sure this is correct: where is the 2nd packet held open???
+
+				// wait for a read for a possibly long duration. this is the "long poll" part.
+				dur := 30 * time.Second
+				// the client will spin up another goroutine/thread/sender if it has
+				// an additional send in the meantime.
+
+				po("LongPoll::Start(): tunnel.go starting to wait up to %v", dur)
+
+				var n64 int64
+				longPollTimeUp := time.After(dur)
+
+				select {
+				case <-s.reqStop:
+					close(pack.done)
+					pack = nil
+					return
+
+				case b500 := <-s.rw.RecvFromDownCh():
+					po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
+
+					n64 += int64(len(b500))
+					_, err := pack.resp.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+
+					_, err = pack.respdup.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+					close(pack.done)
+					pack = nil
+
+				case <-longPollTimeUp:
+					po("tunnel.go: longPollTimeUp!!\n")
+					// send it along its way anyhow
+					close(pack.done)
+					pack = nil
+
+				case <-s.CloseKeyChan:
+					po("tunnel.go: LongPoller with pending packet got closekey. returning packet and then exiting LongPoller")
+					close(pack.done)
+					pack = nil
+					return
+
+				case newpacket := <-s.ClientPacketRecvd:
+					po("tunnel.go: <-s.ClientPakcetRecvd!!: %#v\n", newpacket)
+					s.recvCount++
+					// finish previous packet without data, because client sent another packet
+					close(pack.done)
+					pack = newpacket
+				}
+
+				po("LongPoll::Start(): at end of select/long wait.")
+			}
+		*/
 	}()
+
 	return nil
 }
 
