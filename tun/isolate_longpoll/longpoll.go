@@ -53,7 +53,8 @@ type LongPoller struct {
 	// server issues a unique key for the connection, which allows multiplexing
 	// of multiple client connections from this one ip if need be.
 	// The ssh integrity checks inside the tunnel prevent malicious tampering.
-	key string
+	key     string
+	pollDur time.Duration
 
 	Dest Addr
 
@@ -67,7 +68,7 @@ type LongPoller struct {
 // If a CloseKeyChan receives a key, we return any associated client -> server
 // http request immediately for that key, to facilitate quick shutdown.
 //
-func NewLongPoller(dest Addr) *LongPoller {
+func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
 	key := GenPelicanKey()
 	if dest.Port == 0 {
 		dest.Port = GetAvailPort()
@@ -84,6 +85,7 @@ func NewLongPoller(dest Addr) *LongPoller {
 		key:               string(key),
 		Dest:              dest,
 		CloseKeyChan:      make(chan string),
+		pollDur:           pollDur,
 	}
 
 	return s
@@ -152,8 +154,7 @@ func (s *LongPoller) Start() error {
 		defer func() { s.finish() }()
 
 		// duration of the long poll
-		dur := 30 * time.Second
-		longPollTimeUp := time.After(dur)
+		longPollTimeUp := time.After(s.pollDur)
 
 		var pack *tunnelPacket
 
@@ -219,7 +220,7 @@ func (s *LongPoller) Start() error {
 				// since we will be replying to oldestReqPack (if any) immediately,
 				// we can replace this timer.
 				// TODO: is their a simpler reset instead of replace the timer?
-				longPollTimeUp = time.After(dur)
+				longPollTimeUp = time.After(s.pollDur)
 
 				po("%p '%s' LongPoller, just received ClientPacket with pack.body = '%s'\n", s, skey, string(pack.body))
 
@@ -286,7 +287,7 @@ func (s *LongPoller) Start() error {
 						longPollTimeUp = nil
 					}
 				} else {
-					po("%p '%s' LongPoll countForUpstream(%d) ==%d   len(waitingCliReqs)==%d  ...response so far: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
+					po("%p '%s' LongPoll countForUpstream(%d); len(waitingCliReqs)==%d  ...response so far: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
 				}
 
 				// end case pack = <-s.ClientPacketRecvd:

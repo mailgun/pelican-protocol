@@ -1,4 +1,4 @@
-package pelicantun
+package main
 
 import (
 	"io"

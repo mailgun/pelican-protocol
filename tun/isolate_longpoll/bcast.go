@@ -196,6 +196,8 @@ type BcastServer struct {
 	FirstClient  chan bool
 	SecondClient chan bool
 
+	heard [][]byte
+
 	mut sync.Mutex
 }
 
@@ -216,6 +218,7 @@ func NewBcastServer(a Addr) *BcastServer {
 		FirstClient:  make(chan bool),
 		SecondClient: make(chan bool),
 		waiting:      make([]net.Conn, 0),
+		heard:        make([][]byte, 0),
 	}
 	return r
 }
@@ -303,6 +306,7 @@ func (r *BcastServer) Start() error {
 					if n > 0 {
 						po("bcast_server: reader service routine read buf '%s'\n", string(buf[:n]))
 					}
+					r.heard = append(r.heard, buf[:n])
 					if err != nil {
 						// err.Error() == "EOF" when client closes connection.
 						//	fmt.Printf("BcastServer got error on Read(): err = '%s'\n", err)

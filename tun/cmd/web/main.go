@@ -29,7 +29,7 @@ func main() {
 		fmt.Fprintf(w, "pong")
 	})
 
-	web, err := tun.NewWebServer(tun.WebServerConfig{Listen: lsn}, mux, 60*time.Second)
+	web, err := tun.NewWebServer(tun.WebServerConfig{Listen: lsn, ReadTimeout: 60 * time.Second}, mux)
 	if err != nil {
 		panic(err)
 	}

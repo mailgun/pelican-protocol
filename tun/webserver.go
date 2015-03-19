@@ -1,4 +1,4 @@
-package pelicantun
+package main
 
 /*
 Parts of this code derived from:

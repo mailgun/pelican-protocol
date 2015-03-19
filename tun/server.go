@@ -1,4 +1,4 @@
-package pelicantun
+package main
 
 import (
 	"bytes"
@@ -198,6 +198,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		}
 
 		tunnel := NewLongPoller(s.Cfg.Dest)
+		po("%p LongPoller, NewLongPoller just called, returning me for key '%s'", tunnel, string(tunnel.key[:5]))
 
 		err = tunnel.Start()
 		if err != nil {
