@@ -21,7 +21,9 @@ func TestBcastCliSrvWorkStandAlone008(t *testing.T) {
 	cli := NewBcastClient(Addr{Port: srv.Listen.Port})
 	cli.Start()
 	defer cli.Stop()
-	<-srv.SecondClient
+
+	<-srv.FirstHelloClient
+	po("got past <-srv.FirstHelloClient\n")
 
 	msg := "BREAKING NEWS"
 	srv.Bcast(msg)
@@ -66,6 +68,10 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 
 	<-srv.SecondClient
 	po("got past <-srv.SecondClient\n")
+
+	// must do this, or else we'll race since there are like 3 PortIsBound checks that happen.
+	<-srv.FirstHelloClient
+	po("got past <-srv.FirstHelloClient\n")
 
 	msg := "BREAKING NEWS"
 	srv.Bcast(msg)
@@ -112,6 +118,9 @@ func TestLongPollToGetLowLatency01a(t *testing.T) {
 
 	<-srv.SecondClient
 	po("got past <-srv.SecondClient\n")
+
+	<-srv.FirstHelloClient
+	po("got past <-srv.FirstHelloClient\n")
 
 	msg := "BREAKING NEWS"
 	srv.Bcast(msg)
@@ -237,7 +246,9 @@ func TestLongPollToGetLowLatency111dup(t *testing.T) {
 	<-srv.SecondClient
 	po("got past <-srv.SecondClient\n")
 
-	time.Sleep(3 * time.Second)
+	<-srv.FirstHelloClient
+	po("got past <-srv.FirstHelloClient\n")
+
 	msg := "BREAKING NEWS"
 	srv.Bcast(msg)
 

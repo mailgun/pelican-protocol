@@ -68,9 +68,9 @@ func StartTestSystemWithPing() (*WebServer, *ReverseProxy, *PelicanSocksProxy, e
 // typically you'll want to do:
 //
 //	 cli.Start()
-//	 <-srv.FirstClient // for the WaitUntilServerIsUp client
-//	 <-srv.SecondClient // for the actual client
-//
+//	 <-srv.FirstClient // for the WaitUntilServerIsUp client (don't need this)
+//   <-srv.FirstHelloClient // for the actual client to come up, wait on this
+
 // and only then proceed to
 //   srv.Bcast("BREAKING NEWS")
 //

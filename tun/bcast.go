@@ -95,7 +95,7 @@ func (cli *BcastClient) Start() {
 			default:
 				panic(err)
 			}
-			po("bcast_client: after Read, isTimeout: %v, isEOF: %v, err: %v\n", isTimeout, isEOF, err)
+			//po("bcast_client: after Read, isTimeout: %v, isEOF: %v, err: %v\n", isTimeout, isEOF, err)
 
 			if !isTimeout && !isEOF {
 				cli.lastMsg = string(buf[:n])
@@ -193,8 +193,9 @@ type BcastServer struct {
 	lsn     net.Listener
 	waiting []net.Conn
 
-	FirstClient  chan bool
-	SecondClient chan bool
+	FirstClient      chan bool
+	SecondClient     chan bool
+	FirstHelloClient chan bool // actual bcast_cliet will start with hello. then close this.
 
 	mut sync.Mutex
 }
@@ -209,13 +210,14 @@ func NewBcastServer(a Addr) *BcastServer {
 	a.SetIpPort()
 
 	r := &BcastServer{
-		Listen:       a,
-		Ready:        make(chan bool),
-		reqStop:      make(chan bool),
-		Done:         make(chan bool),
-		FirstClient:  make(chan bool),
-		SecondClient: make(chan bool),
-		waiting:      make([]net.Conn, 0),
+		Listen:           a,
+		Ready:            make(chan bool),
+		reqStop:          make(chan bool),
+		Done:             make(chan bool),
+		FirstClient:      make(chan bool),
+		SecondClient:     make(chan bool),
+		FirstHelloClient: make(chan bool),
+		waiting:          make([]net.Conn, 0),
 	}
 	return r
 }
@@ -302,6 +304,17 @@ func (r *BcastServer) Start() error {
 					n, err := netconn.Read(buf)
 					if n > 0 {
 						po("bcast_server: reader service routine read buf '%s'\n", string(buf[:n]))
+
+						if n > 5 && string(buf[:5]) == "hello" {
+							select {
+							case <-r.FirstHelloClient:
+								po("bcast_server: ignoring next hello client after ther first close of r.FirstHelloClient")
+							default:
+								close(r.FirstHelloClient)
+								po("bcast_server: closed r.FirstHelloClient")
+							}
+						}
+
 					}
 					if err != nil {
 						// err.Error() == "EOF" when client closes connection.

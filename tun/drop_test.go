@@ -89,6 +89,9 @@ func TestDroppedConnectionsToForwardDontLeak023(t *testing.T) {
 		<-srv.SecondClient
 		po("got past <-srv.SecondClient\n")
 
+		<-srv.FirstHelloClient
+		po("got past <-srv.FirstHelloClient\n")
+
 		msg := "BREAKING NEWS"
 		srv.Bcast(msg)
 

@@ -19,7 +19,7 @@ func TestWebServer888(t *testing.T) {
 		fmt.Fprintf(w, "pong")
 	})
 
-	s, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, nil)
+	s, err := NewWebServer(WebServerConfig{ReadTimeout: specialFastTestReadTimeout}, mux)
 	panicOn(err)
 	s.Start("ping-test-webserver")
 	defer s.Stop()
