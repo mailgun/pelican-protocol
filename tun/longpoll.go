@@ -154,7 +154,8 @@ func (s *LongPoller) Start() error {
 		defer func() { s.finish() }()
 
 		// duration of the long poll
-		longPollTimeUp := time.After(s.pollDur)
+
+		longPollTimeUp := time.NewTimer(s.pollDur)
 
 		var pack *tunnelPacket
 
@@ -180,7 +181,7 @@ func (s *LongPoller) Start() error {
 					waitingCliReqs = waitingCliReqs[1:]
 				} else {
 					oldestReqPack = nil
-					longPollTimeUp = nil
+					longPollTimeUp.Stop()
 				}
 			}
 		}
@@ -195,7 +196,7 @@ func (s *LongPoller) Start() error {
 			}
 			select {
 
-			case <-longPollTimeUp:
+			case <-longPollTimeUp.C:
 				po("%p '%s' longPollTimeUp!!", s, skey)
 				sendReplyUpstream()
 
@@ -228,9 +229,8 @@ func (s *LongPoller) Start() error {
 
 				// reset timer. only hold this packet open for at most 'dur' time.
 				// since we will be replying to oldestReqPack (if any) immediately,
-				// we can replace this timer.
-				// TODO: is their a simpler reset instead of replace the timer?
-				longPollTimeUp = time.After(s.pollDur)
+				// we can reset the timer to reflect pack's arrival.
+				longPollTimeUp.Reset(s.pollDur)
 
 				po("%p '%s' LongPoller, just received ClientPacket with pack.body = '%s'\n", s, skey, string(pack.body))
 
