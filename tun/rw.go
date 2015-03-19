@@ -285,6 +285,7 @@ func (s *NetConnReader) Start() {
 			// is full, we will block until the consumer end of this
 			// channel makes progress.
 			case s.dnReadToUpWrite <- buf:
+				po("sent buf '%s' on s.dnReadToUpWrite=%p", buf, s.dnReadToUpWrite)
 			case <-s.reqStop:
 				// avoid deadlock on shutdown
 				return

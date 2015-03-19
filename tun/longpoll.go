@@ -196,7 +196,7 @@ func (s *LongPoller) Start() error {
 			select {
 
 			case <-longPollTimeUp:
-				po("longPollTimeUp!!")
+				po("%p '%s' longPollTimeUp!!", s, skey)
 				sendReplyUpstream()
 
 			// Only receive if we have a waiting packet body to write to.
@@ -238,6 +238,8 @@ func (s *LongPoller) Start() error {
 
 				pack.resp.Header().Set("Content-type", "application/octet-stream")
 
+				po("%p '%s' just before s.rw.SendToDownCh()", s, skey)
+
 				// we got data from the client for server!
 				// read from the request body and write to the ResponseWriter
 				select {
@@ -245,11 +247,13 @@ func (s *LongPoller) Start() error {
 				// in fact we do want the back pressure to keep us from
 				// writing too much too fast.
 				case s.rw.SendToDownCh() <- pack.body:
-
+					po("%p '%s' sent data on s.rw.SendToDownCh()", s, skey)
 				case <-s.reqStop:
+					po("%p '%s' got reqStop, *not* returning", s, skey)
 					// avoid deadlock on shutdown, but do
 					// finish processing this packet, don't return yet
 				}
+				po("%p '%s' just after s.rw.SendToDownCh()", s, skey)
 
 				// transfer data from server to client
 
@@ -278,6 +282,8 @@ func (s *LongPoller) Start() error {
 					}
 
 				case <-time.After(10 * time.Millisecond):
+					po("%p '%s' after 10msec of extra s.rw.RecvFromDownCh() reads", s, skey)
+
 					// stop trying to read from server downstream, and send what
 					// we got upstream to client.
 				}
@@ -290,6 +296,7 @@ func (s *LongPoller) Start() error {
 
 				// end case pack = <-s.ClientPacketRecvd:
 			case <-s.reqStop:
+				po("%p '%s' got reqStop, returning", s, skey)
 				return
 			case <-s.CloseKeyChan:
 				po("%p '%s' LongPoller in nil packet state, got closekeychan. Shutting down.", s, skey)
