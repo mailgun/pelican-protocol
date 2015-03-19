@@ -35,8 +35,8 @@ func TestBcastCliSrvWorkStandAlone008(t *testing.T) {
 				// excllent
 				po("excellent, cli got a message!\n")
 				po("client saw: '%s'", cli.LastMsgReceived())
-			case <-time.After(time.Second * 2):
-				po("\n\nWe waited 2 seconds, bailing.\n")
+			case <-time.After(time.Second * 5):
+				po("\n\nWe waited 5 seconds, bailing.\n")
 				srv.Stop()
 				// should have gotten a message from the server at the client by now.
 
@@ -78,8 +78,8 @@ func TestLongPollToGetLowLatency010(t *testing.T) {
 			// excllent
 			po("excellent, cli got a message!\n")
 			po("client saw: '%s'", cli.LastMsgReceived())
-		case <-time.After(time.Second * 2):
-			po("\n\nWe waited 2 seconds, bailing.\n")
+		case <-time.After(time.Second * 5):
+			po("\n\nWe waited 5 seconds, bailing.\n")
 			srv.Stop()
 			// should have gotten a message from the server at the client by now.
 
@@ -124,8 +124,8 @@ func TestLongPollToGetLowLatency01a(t *testing.T) {
 			// excllent
 			po("excellent, cli got a message!\n")
 			po("client saw: '%s'", cli.LastMsgReceived())
-		case <-time.After(time.Second * 2):
-			po("\n\nWe waited 2 seconds, bailing.\n")
+		case <-time.After(time.Second * 5):
+			po("\n\nWe waited 5 seconds, bailing.\n")
 			srv.Stop()
 			// should have gotten a message from the server at the client by now.
 

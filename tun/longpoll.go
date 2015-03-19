@@ -166,12 +166,13 @@ func (s *LongPoller) Start() error {
 		var countForUpstream int64
 
 		for {
-			po("at top of LongPoller loop, inside Start()")
+			po("at top of LongPoller loop, inside Start(). len(wait)=%d, oldestReqPack=%p",
+				len(waitingCliReqs), oldestReqPack)
 
 			select {
 
 			case <-longPollTimeUp:
-				po("tunnel.go: longPollTimeUp!!\n")
+				po("longPollTimeUp!!")
 				if oldestReqPack != nil {
 					close(oldestReqPack.done) // send reply!
 					if len(waitingCliReqs) > 0 {
@@ -191,7 +192,7 @@ func (s *LongPoller) Start() error {
 					return nil
 				}
 			}():
-				po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
+				po("LongPoller got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
 
 				countForUpstream += int64(len(b500))
 				_, err := oldestReqPack.resp.Write(b500)
@@ -206,6 +207,7 @@ func (s *LongPoller) Start() error {
 
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
+				po("longPoller got client packet! recvCount now: %d", s.recvCount)
 
 				// reset timer. only hold this packet open for at most 'dur' time.
 				// since we will be replying to oldestReqPack (if any) immediately,
@@ -213,7 +215,7 @@ func (s *LongPoller) Start() error {
 				// TODO: is their a simpler reset instead of replace the timer?
 				longPollTimeUp = time.After(dur)
 
-				po("in LongPoller, just receive ClientPacket with pack.body = '%s'\n", string(pack.body))
+				po("in LongPoller, just received ClientPacket with pack.body = '%s'\n", string(pack.body))
 
 				// have to both send and receive
 
