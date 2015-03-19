@@ -146,6 +146,13 @@ func TestLongPollToGetLowLatency01a(t *testing.T) {
 	})
 }
 
+// next test to write, after 016:
+// + growing number of bytes in messages get returned.
+// + client sends 2, server sends 3, client sends 4, server sends 5 msgs in a row.
+//
+// + if there are no bytes to send, then the client and the server should remain idle
+//   until the long-poll timeout (30 sec by default, can be smaller for testing).
+//
 func TestLongPollKeepsFifoOrdering016(t *testing.T) {
 
 	cli, srv, rev, fwd, err := StartTestSystemWithCountingServer()
@@ -187,6 +194,15 @@ func TestLongPollKeepsFifoOrdering016(t *testing.T) {
 
 		po("server history:")
 		srv.ShowTmHistory()
+
+		time.Sleep(10 * time.Second)
+
+		po("client history after 10 sec sleep:")
+		cli.ShowTmHistory()
+
+		po("server history after 10 sec sleep:")
+		srv.ShowTmHistory()
+
 	})
 
 }

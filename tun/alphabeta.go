@@ -92,19 +92,27 @@ type Chaser struct {
 	cfg ChaserConfig
 
 	httpClient *HttpClientWithTimeout
+
+	// shutdown after a period on non-use
+	shutdownInactiveDur time.Duration
+	inactiveTimer       *time.Timer
+	lastActiveTm        time.Time
+	mutTimer            sync.Mutex
 }
 
 type ChaserConfig struct {
-	ConnectTimeout   time.Duration
-	TransportTimeout time.Duration
-	BufSize          int
+	ConnectTimeout      time.Duration
+	TransportTimeout    time.Duration
+	BufSize             int
+	ShutdownInactiveDur time.Duration
 }
 
 func DefaultChaserConfig() *ChaserConfig {
 	return &ChaserConfig{
-		ConnectTimeout:   2000 * time.Millisecond,
-		TransportTimeout: 60 * time.Second,
-		BufSize:          4096,
+		ConnectTimeout:      2000 * time.Millisecond,
+		TransportTimeout:    60 * time.Second,
+		BufSize:             4096,
+		ShutdownInactiveDur: 10 * time.Minute,
 	}
 }
 
@@ -141,6 +149,10 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		panic(fmt.Errorf("dest.Port was 0"))
 	}
 
+	if cfg.ShutdownInactiveDur == 0 {
+		cfg.ShutdownInactiveDur = DefaultChaserConfig().ShutdownInactiveDur
+	}
+
 	rwReaderDone := make(chan *NetConnReader)
 	rwWriterDone := make(chan *NetConnWriter)
 
@@ -160,15 +172,17 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		incoming:    rw.RecvCh(), // requests to the remote http
 		repliesHere: rw.SendCh(), // replies from remote http are passed upstream here.
 
-		alphaIsHome: true,
-		betaIsHome:  true,
-		closedChan:  make(chan bool),
-		home:        NewClientHome(),
-		dest:        dest,
-		key:         key,
-		notifyDone:  notifyDone,
-		cfg:         cfg,
-		httpClient:  NewHttpClientWithTimeout(cfg.TransportTimeout),
+		alphaIsHome:         true,
+		betaIsHome:          true,
+		closedChan:          make(chan bool),
+		home:                NewClientHome(),
+		dest:                dest,
+		key:                 key,
+		notifyDone:          notifyDone,
+		cfg:                 cfg,
+		httpClient:          NewHttpClientWithTimeout(cfg.TransportTimeout),
+		shutdownInactiveDur: cfg.ShutdownInactiveDur,
+		inactiveTimer:       time.NewTimer(cfg.ShutdownInactiveDur),
 	}
 
 	po("\n\n Chaser %p gets NewRW() = %p '%s' with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.name, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
@@ -177,6 +191,13 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 	close(s.closedChan)
 
 	return s
+}
+
+func (s *Chaser) ResetActiveTimer() {
+	s.mutTimer.Lock()
+	defer s.mutTimer.Unlock()
+	s.inactiveTimer.Reset(s.shutdownInactiveDur)
+	s.lastActiveTm = time.Now()
 }
 
 func (s *Chaser) Start() {
@@ -326,11 +347,17 @@ func (s *Chaser) startAlpha() {
 						// don't block on it through, go ahead with empty data
 						// if we don't have any.
 					}
+				case <-s.inactiveTimer.C:
+					po("%p alpha got <-s.inactiveTimer.C, after %v: returning/shutting down.", s, s.shutdownInactiveDur)
+					return
 				}
 			}
 
 			if len(work) == 0 {
 				continue
+			} else {
+				// actual bytes to send!
+				s.ResetActiveTimer()
 			}
 
 			// send request to server
@@ -350,6 +377,10 @@ func (s *Chaser) startAlpha() {
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
+
+			if len(replyBytes) > 0 {
+				s.ResetActiveTimer()
+			}
 
 			// deliver any response data (body) to our client
 			select {
@@ -414,6 +445,8 @@ func (s *Chaser) startBeta() {
 
 			if len(work) == 0 {
 				continue
+			} else {
+				s.ResetActiveTimer()
 			}
 
 			// send request to server
@@ -432,6 +465,10 @@ func (s *Chaser) startBeta() {
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
+
+			if len(replyBytes) > 0 {
+				s.ResetActiveTimer()
+			}
 
 			// deliver any response data (body) to our client
 			select {

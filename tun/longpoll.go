@@ -60,6 +60,7 @@ type LongPoller struct {
 
 	mut          sync.Mutex
 	CloseKeyChan chan string
+	lastUseTm    time.Time
 }
 
 // Make a new LongPoller as a part of the server (ReverseProxy is the server;
@@ -209,6 +210,9 @@ func (s *LongPoller) Start() error {
 					return nil
 				}
 			}():
+				if len(b500) > 0 {
+					s.lastUseTm = time.Now()
+				}
 				po("%p '%s' LongPoller got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'\n", s, skey, string(b500))
 
 				countForUpstream += int64(len(b500))
@@ -225,6 +229,9 @@ func (s *LongPoller) Start() error {
 
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
+				if len(pack.body) > 0 {
+					s.lastUseTm = time.Now()
+				}
 				po("%p '%s' longPoller got client packet! recvCount now: %d", s, skey, s.recvCount)
 
 				// reset timer. only hold this packet open for at most 'dur' time.

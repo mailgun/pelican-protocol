@@ -209,6 +209,8 @@ func (r *CountingTestServer) Nonecho(msg string) {
 }
 
 func (r *CountingTestServer) IsStopRequested() bool {
+	r.mut.Lock()
+	defer r.mut.Unlock()
 	select {
 	case <-r.reqStop:
 		return true
@@ -218,9 +220,11 @@ func (r *CountingTestServer) IsStopRequested() bool {
 }
 
 func (r *CountingTestServer) Stop() {
+	po("CountingTestServer::Stop() called.")
 	r.RequestStop()
 	r.lsn.Close()
 	<-r.Done
+	po("CountingTestServer::Stop() done.")
 }
 
 // RequestStop makes sure we only close
@@ -400,8 +404,10 @@ func (r *CountingTestClient) IsStopRequested() bool {
 }
 
 func (r *CountingTestClient) Stop() {
+	po("CountingTestClient::Stop() called.")
 	r.RequestStop()
 	<-r.Done
+	po("CountingTestClient::Stop() done.")
 }
 
 // RequestStop makes sure we only close
