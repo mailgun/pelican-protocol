@@ -170,7 +170,6 @@ func (s *LongPoller) Start() error {
 		var oldestReqPack *tunnelPacket
 		var countForUpstream int64
 
-		// sends replies upsteram
 		sendReplyUpstream := func() {
 			if oldestReqPack != nil {
 				po("%p '%s' LongPoll::Start(): sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))

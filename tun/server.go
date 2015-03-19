@@ -1,4 +1,4 @@
-package main
+package pelicantun
 
 import (
 	"bytes"
@@ -11,8 +11,9 @@ import (
 )
 
 type ReverseProxyConfig struct {
-	Listen Addr
-	Dest   Addr
+	Listen      Addr
+	Dest        Addr
+	LongPollDur time.Duration
 }
 
 // one ReverseProxy can contain many tunnels
@@ -51,6 +52,10 @@ func (p *ReverseProxy) Stop() {
 }
 
 func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
+
+	if cfg.LongPollDur == 0 {
+		cfg.LongPollDur = time.Second * 30
+	}
 
 	// get an available port
 	if cfg.Listen.Port == 0 {
@@ -197,7 +202,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 			return
 		}
 
-		tunnel := NewLongPoller(s.Cfg.Dest)
+		tunnel := NewLongPoller(s.Cfg.Dest, s.Cfg.LongPollDur)
 		po("%p LongPoller, NewLongPoller just called, returning me for key '%s'", tunnel, string(tunnel.key[:5]))
 
 		err = tunnel.Start()

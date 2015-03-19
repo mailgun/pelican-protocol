@@ -1,6 +1,7 @@
-package main
+package pelicantun
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -196,13 +197,26 @@ func FetchUrl(url string) ([]byte, error) {
 
 // mock for http.ResponseWriter
 
-type MockResponseWriter struct{}
+func NewMockResponseWriter() *MockResponseWriter {
+	return &MockResponseWriter{
+		header: make(http.Header),
+	}
+}
+
+type MockResponseWriter struct {
+	store   bytes.Buffer
+	header  http.Header
+	errcode int
+}
 
 // Header returns the header map that will be sent by WriteHeader.
 // Changing the header after a call to WriteHeader (or Write) has
 // no effect.
 func (m *MockResponseWriter) Header() http.Header {
-	return make(http.Header)
+	if m.header == nil {
+		m.header = make(http.Header)
+	}
+	return m.header
 }
 
 // Write writes the data to the connection as part of an HTTP reply.
@@ -211,7 +225,7 @@ func (m *MockResponseWriter) Header() http.Header {
 // Content-Type line, Write adds a Content-Type set to the result of passing
 // the initial 512 bytes of written data to DetectContentType.
 func (m *MockResponseWriter) Write(p []byte) (int, error) {
-	return len(p), nil
+	return m.store.Write(p)
 }
 
 // WriteHeader sends an HTTP response header with status code.
@@ -220,5 +234,5 @@ func (m *MockResponseWriter) Write(p []byte) (int, error) {
 // Thus explicit calls to WriteHeader are mainly used to
 // send error codes.
 func (m *MockResponseWriter) WriteHeader(status int) {
-
+	m.errcode = status
 }

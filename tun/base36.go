@@ -1,4 +1,4 @@
-package main
+package pelicantun
 
 import (
 	"crypto/hmac"

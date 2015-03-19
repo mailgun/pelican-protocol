@@ -1,4 +1,4 @@
-package main
+package pelicantun
 
 /* not sure if we want to do passthrough at this level or ealier?
 

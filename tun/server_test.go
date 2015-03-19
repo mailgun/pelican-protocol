@@ -1,4 +1,4 @@
-package main
+package pelicantun
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	cv "github.com/glycerine/goconvey/convey"
 )
@@ -62,7 +63,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 
 	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver\n", t, func() {
 
-		tunnel := NewLongPoller(web.Cfg.Listen)
+		tunnel := NewLongPoller(web.Cfg.Listen, 2*time.Second)
 		err := tunnel.Start()
 		cv.So(err, cv.ShouldEqual, nil)
 		defer tunnel.Stop()
