@@ -30,11 +30,11 @@ func TestLongPollerWorksStandAlone041(t *testing.T) {
 
 	cv.Convey("Given a LongPoller stand alone, it should pass bytes to the downstream server, and return replies from downstream to upstream", t, func() {
 
-		srv := NewBcastServer(Addr{})
+		srv := NewEchoServer(Addr{}, true)
 		srv.Start()
 		defer srv.Stop()
 
-		s := NewLongPoller(srv.Listen, 5*time.Second)
+		s := NewLongPoller(srv.Listen, 15*time.Second)
 		s.Start()
 
 		c := NewMockResponseWriter()
@@ -59,7 +59,7 @@ func TestLongPollerWorksStandAlone041(t *testing.T) {
 		po("got back: '%s'", pack.respdup.Bytes())
 
 		// we should get back the body
-		cv.So(pack.respdup.Bytes(), cv.ShouldResemble, body)
+		cv.So(string(pack.respdup.Bytes()), cv.ShouldResemble, string(body)+"0")
 
 	})
 }

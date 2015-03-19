@@ -1,5 +1,10 @@
 package main
 
+import (
+	"bytes"
+	"net/http"
+)
+
 func NewMockResponseWriter() *MockResponseWriter {
 	return &MockResponseWriter{
 		header: make(http.Header),

@@ -164,9 +164,26 @@ func (s *LongPoller) Start() error {
 		// from the client Requests and write those bytes to the server.
 
 		// keep at most 2 cliRequests on hand, cycle them in FIFO order.
+		// they are: oldestReqPack, and waitingCliReqs[0], in that order.
 		waitingCliReqs := make([]*tunnelPacket, 0, 2)
 		var oldestReqPack *tunnelPacket
 		var countForUpstream int64
+
+		// sends replies upsteram
+		sendUp := func() {
+			if oldestReqPack != nil {
+				po("%p '%s' LongPoll::Start(): sendUp() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
+				close(oldestReqPack.done) // send!
+				countForUpstream = 0
+				if len(waitingCliReqs) > 0 {
+					oldestReqPack = waitingCliReqs[0]
+					waitingCliReqs = waitingCliReqs[1:]
+				} else {
+					oldestReqPack = nil
+					longPollTimeUp = nil
+				}
+			}
+		}
 
 		for {
 			po("%p '%s' longpoller: at top of LongPoller loop, inside Start(). len(wait)=%d", s, skey, len(waitingCliReqs))
@@ -180,15 +197,8 @@ func (s *LongPoller) Start() error {
 
 			case <-longPollTimeUp:
 				po("longPollTimeUp!!")
-				if oldestReqPack != nil {
-					close(oldestReqPack.done) // send reply!
-					if len(waitingCliReqs) > 0 {
-						oldestReqPack = waitingCliReqs[0]
-						waitingCliReqs = waitingCliReqs[1:]
-					} else {
-						oldestReqPack = nil
-					}
-				}
+				// SEND reply! (by closing oldestReq.done)
+				sendUp()
 
 			// Only receive if we have a waiting packet body to write to.
 			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
@@ -211,6 +221,7 @@ func (s *LongPoller) Start() error {
 				if err != nil {
 					panic(err)
 				}
+				sendUp()
 
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
@@ -273,19 +284,7 @@ func (s *LongPoller) Start() error {
 				}
 
 				if countForUpstream > 0 || len(waitingCliReqs) > 0 {
-
-					// SEND reply! (by closing oldestReq.done)
-
-					po("%p '%s' LongPoll::Start(): sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
-					close(oldestReqPack.done) // send!
-					countForUpstream = 0
-					if len(waitingCliReqs) > 0 {
-						oldestReqPack = waitingCliReqs[0]
-						waitingCliReqs = waitingCliReqs[1:]
-					} else {
-						oldestReqPack = nil
-						longPollTimeUp = nil
-					}
+					sendUp()
 				} else {
 					po("%p '%s' LongPoll countForUpstream(%d); len(waitingCliReqs)==%d  ...response so far: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
 				}
