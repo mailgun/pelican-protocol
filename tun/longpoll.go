@@ -147,7 +147,7 @@ func (s *LongPoller) Start() error {
 	}
 
 	// s.dial() sets s.conn on success.
-	s.rw = NewServerRW(s.conn, 0, nil, nil)
+	s.rw = NewServerRW("ServerRW/LongPoller", s.conn, 0, nil, nil, s)
 	s.rw.Start()
 
 	go func() {
@@ -172,7 +172,7 @@ func (s *LongPoller) Start() error {
 
 		sendReplyUpstream := func() {
 			if oldestReqPack != nil {
-				po("%p '%s' LongPoll::Start(): sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
+				po("%p '%s' longpoller sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
 				close(oldestReqPack.done) // send!
 				countForUpstream = 0
 				if len(waitingCliReqs) > 0 {

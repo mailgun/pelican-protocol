@@ -144,7 +144,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 	rwReaderDone := make(chan *NetConnReader)
 	rwWriterDone := make(chan *NetConnWriter)
 
-	rw := NewClientRW(conn, cfg.BufSize, rwReaderDone, rwWriterDone)
+	rw := NewClientRW("ClientRW/Chaser", conn, cfg.BufSize, rwReaderDone, rwWriterDone)
 
 	s := &Chaser{
 		rw:           rw,
@@ -171,7 +171,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		httpClient:  NewHttpClientWithTimeout(cfg.TransportTimeout),
 	}
 
-	po("\n\n Chaser %p gets NewRW() = %p with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
+	po("\n\n Chaser %p gets NewRW() = %p '%s' with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.name, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
 
 	// always closed
 	close(s.closedChan)

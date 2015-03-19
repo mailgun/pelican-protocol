@@ -36,13 +36,15 @@ type ServerRW struct {
 	w               *NetConnWriter
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	dnReadToUpWrite chan []byte // can only send []byte to upstream
+	name            string      // helpful in reading debug logs
+	parent          *LongPoller
 }
 
 // make a new ServerRW, passing bufsz to NewNetConnReader(). If the notifyWriterDone
 // and/or notifyReaderDone channels are not nil, then they will
 // receive a pointer to the NetConnReader (NetConnWriter) at Stop() time.
 //
-func NewServerRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *ServerRW {
+func NewServerRW(name string, netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter, parent *LongPoller) *ServerRW {
 
 	// buffered channels here are important: we want
 	// exactly buffered channel semantics: don't block
@@ -53,11 +55,14 @@ func NewServerRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnRead
 
 	s := &ServerRW{
 		conn:            netconn,
-		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
-		w:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
 		upReadToDnWrite: upReadToDnWrite,
 		dnReadToUpWrite: dnReadToUpWrite,
+		name:            name,
+		parent:          parent,
 	}
+	s.r = NewNetConnReader(name, netconn, dnReadToUpWrite, bufsz, notifyReaderDone, s)
+	s.w = NewNetConnWriter(name, netconn, upReadToDnWrite, notifyWriterDone, s)
+
 	return s
 }
 
@@ -146,6 +151,7 @@ type NetConnReader struct {
 	bufsz   int
 	conn    net.Conn
 	timeout time.Duration
+	name    string
 
 	// clients of NewConnReader should get access to the channel
 	// via calling RecvFromDownCh() so we can nil the channel when
@@ -159,6 +165,7 @@ type NetConnReader struct {
 	notifyDoneCh chan *NetConnReader
 	reportDone   bool
 	mut          sync.Mutex
+	parent       *ServerRW
 }
 
 // NetConnReaderDefaultBufSizeBytes declares the default read buffer size.
@@ -170,10 +177,12 @@ const NetConnReaderDefaultBufSizeBytes = 4 * 1024 // 4K
 // make a new NetConnReader. if bufsz is 0 then we default
 // to using a buffer of size NetConnReaderDefaultBufSizeBytes.
 func NewNetConnReader(
+	name string,
 	netconn net.Conn,
 	dnReadToUpWrite chan []byte,
 	bufsz int,
-	notifyDone chan *NetConnReader) *NetConnReader {
+	notifyDone chan *NetConnReader,
+	parent *ServerRW) *NetConnReader {
 
 	if bufsz <= 0 {
 		bufsz = NetConnReaderDefaultBufSizeBytes
@@ -189,6 +198,8 @@ func NewNetConnReader(
 		timeout:      10 * time.Millisecond,
 		bufsz:        bufsz,
 		notifyDoneCh: notifyDone,
+		name:         name,
+		parent:       parent,
 	}
 	if s.notifyDoneCh != nil {
 		s.reportDone = true
@@ -220,7 +231,7 @@ func (s *NetConnReader) finish() {
 		s.notifyDoneCh <- s
 	}
 
-	po("rw reader %p shut down complete, last error: '%v'\n", s, s.LastErr)
+	po("%p '%s' rw reader shut down complete, last error: '%v'\n", s, s.name, s.LastErr)
 	close(s.Done)
 }
 
@@ -254,14 +265,18 @@ func (s *NetConnReader) Start() {
 
 			if err != nil {
 				s.LastErr = err
-				po("rw reader %p got error '%s', shutting down\n", s, err)
+				po("%p '%s' rw reader got error '%s', shutting down\n", s, s.name, err)
 				return // shuts us down
 			}
 
 			if n64 == 0 {
 				continue
 			}
-			po("NetConnReader %p got buf: '%s', of len n64=%d\n", s, string(buf[:n64]), n64)
+			if s.parent != nil && s.parent.parent != nil {
+				po("%p '%s' NetConnReader got buf: '%s', of len n64=%d  parent.LongPoller='%s'\n", s, s.name, string(buf[:n64]), n64, string(s.parent.parent.key[:5]))
+			} else {
+				po("%p '%s' NetConnReader got buf: '%s', of len n64=%d  parent=nil\n", s, s.name, string(buf[:n64]), n64)
+			}
 
 			buf = buf[:n64]
 
@@ -301,7 +316,7 @@ func (s *NetConnReader) RequestStop() bool {
 		return false
 	default:
 		close(s.reqStop)
-		po("%p rw NetConnReader req.Stop closed", s)
+		po("%p '%s' rw NetConnReader req.Stop closed", s, s.name)
 		return true
 	}
 }
@@ -358,16 +373,18 @@ type NetConnWriter struct {
 	conn            net.Conn
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	timeout         time.Duration
+	name            string
 
 	// report to the one user of NetConnWriter that we have stopped
 	// over notifyDoneCh, iff reportDone is true.
 	notifyDoneCh chan *NetConnWriter
 	reportDone   bool
 	mut          sync.Mutex
+	parent       interface{} // useful for debugging
 }
 
 // make a new NetConnWriter
-func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone chan *NetConnWriter) *NetConnWriter {
+func NewNetConnWriter(name string, netconn net.Conn, upReadToDnWrite chan []byte, notifyDone chan *NetConnWriter, parent interface{}) *NetConnWriter {
 	s := &NetConnWriter{
 		Done:            make(chan bool),
 		reqStop:         make(chan bool),
@@ -376,6 +393,8 @@ func NewNetConnWriter(netconn net.Conn, upReadToDnWrite chan []byte, notifyDone 
 		upReadToDnWrite: upReadToDnWrite,
 		timeout:         40 * time.Millisecond,
 		notifyDoneCh:    notifyDone,
+		name:            name,
+		parent:          parent,
 	}
 	if s.notifyDoneCh != nil {
 		s.reportDone = true
@@ -405,7 +424,7 @@ func (s *NetConnWriter) finish() {
 		s.notifyDoneCh <- s
 	}
 
-	po("rw writer %p shut down complete, last error: '%v'\n", s, s.LastErr)
+	po("%p '%s' rw writer shut down complete, last error: '%v'\n", s, s.name, s.LastErr)
 	close(s.Done)
 }
 
@@ -528,7 +547,7 @@ func (s *NetConnWriter) RequestStop() bool {
 		return false
 	default:
 		close(s.reqStop)
-		po("%p rw NetConnWriter req.Stop closed", s)
+		po("%p '%s' rw NetConnWriter req.Stop closed", s, s.name)
 		return true
 	}
 }

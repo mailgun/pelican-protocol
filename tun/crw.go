@@ -31,13 +31,14 @@ type ClientRW struct {
 	w               *NetConnWriter
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	dnReadToUpWrite chan []byte // can only send []byte to upstream
+	name            string
 }
 
 // make a new RW, passing bufsz to NewNetConnReader(). If the notifyWriterDone
 // and/or notifyReaderDone channels are not nil, then they will
 // receive a pointer to the NetConnReader (NetConnWriter) at Stop() time.
 //
-func NewClientRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *ClientRW {
+func NewClientRW(name string, netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter) *ClientRW {
 
 	// buffered channels here are important: we want
 	// exactly buffered channel semantics: don't block
@@ -48,11 +49,13 @@ func NewClientRW(netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnRead
 
 	s := &ClientRW{
 		conn:            netconn,
-		r:               NewNetConnReader(netconn, dnReadToUpWrite, bufsz, notifyReaderDone),
-		w:               NewNetConnWriter(netconn, upReadToDnWrite, notifyWriterDone),
 		upReadToDnWrite: upReadToDnWrite,
 		dnReadToUpWrite: dnReadToUpWrite,
+		name:            name,
 	}
+	s.r = NewNetConnReader(name, netconn, dnReadToUpWrite, bufsz, notifyReaderDone, nil)
+	s.w = NewNetConnWriter(name, netconn, upReadToDnWrite, notifyWriterDone, nil)
+
 	return s
 }
 

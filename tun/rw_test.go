@@ -24,7 +24,7 @@ func TestRW017(t *testing.T) {
 		}
 
 		// use a small buffer to simulate needing multiple reads
-		rw := NewServerRW(conn, 2, nil, nil)
+		rw := NewServerRW("ServerRW in rw_test.go", conn, 2, nil, nil, nil)
 		rw.Start()
 		defer rw.Stop()
 
