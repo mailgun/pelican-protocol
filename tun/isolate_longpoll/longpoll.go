@@ -165,14 +165,15 @@ func (s *LongPoller) Start() error {
 
 		// keep at most 2 cliRequests on hand, cycle them in FIFO order.
 		// they are: oldestReqPack, and waitingCliReqs[0], in that order.
+
 		waitingCliReqs := make([]*tunnelPacket, 0, 2)
 		var oldestReqPack *tunnelPacket
 		var countForUpstream int64
 
 		// sends replies upsteram
-		sendUp := func() {
+		sendReplyUpstream := func() {
 			if oldestReqPack != nil {
-				po("%p '%s' LongPoll::Start(): sendUp() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
+				po("%p '%s' LongPoll::Start(): sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0   ...response: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
 				close(oldestReqPack.done) // send!
 				countForUpstream = 0
 				if len(waitingCliReqs) > 0 {
@@ -197,8 +198,7 @@ func (s *LongPoller) Start() error {
 
 			case <-longPollTimeUp:
 				po("longPollTimeUp!!")
-				// SEND reply! (by closing oldestReq.done)
-				sendUp()
+				sendReplyUpstream()
 
 			// Only receive if we have a waiting packet body to write to.
 			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
@@ -221,7 +221,7 @@ func (s *LongPoller) Start() error {
 				if err != nil {
 					panic(err)
 				}
-				sendUp()
+				sendReplyUpstream()
 
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
@@ -284,7 +284,7 @@ func (s *LongPoller) Start() error {
 				}
 
 				if countForUpstream > 0 || len(waitingCliReqs) > 0 {
-					sendUp()
+					sendReplyUpstream()
 				} else {
 					po("%p '%s' LongPoll countForUpstream(%d); len(waitingCliReqs)==%d  ...response so far: '%s'", s, skey, countForUpstream, len(waitingCliReqs), string(oldestReqPack.respdup.Bytes()))
 				}
@@ -308,64 +308,6 @@ func (s *LongPoller) Start() error {
 			} //end select
 		} // end for
 
-		/*
-				// *** not sure this is correct: where is the 2nd packet held open???
-
-				// wait for a read for a possibly long duration. this is the "long poll" part.
-				dur := 30 * time.Second
-				// the client will spin up another goroutine/thread/sender if it has
-				// an additional send in the meantime.
-
-				po("LongPoll::Start(): tunnel.go starting to wait up to %v", dur)
-
-				var n64 int64
-				longPollTimeUp := time.After(dur)
-
-				select {
-				case <-s.reqStop:
-					close(pack.done)
-					pack = nil
-					return
-
-				case b500 := <-s.rw.RecvFromDownCh():
-					po("tunnel.go: <-s.rw.RecvFromDownCh() got b500='%s'\n", string(b500))
-
-					n64 += int64(len(b500))
-					_, err := pack.resp.Write(b500)
-					if err != nil {
-						panic(err)
-					}
-
-					_, err = pack.respdup.Write(b500)
-					if err != nil {
-						panic(err)
-					}
-					close(pack.done)
-					pack = nil
-
-				case <-longPollTimeUp:
-					po("tunnel.go: longPollTimeUp!!\n")
-					// send it along its way anyhow
-					close(pack.done)
-					pack = nil
-
-				case <-s.CloseKeyChan:
-					po("tunnel.go: LongPoller with pending packet got closekey. returning packet and then exiting LongPoller")
-					close(pack.done)
-					pack = nil
-					return
-
-				case newpacket := <-s.ClientPacketRecvd:
-					po("tunnel.go: <-s.ClientPakcetRecvd!!: %#v\n", newpacket)
-					s.recvCount++
-					// finish previous packet without data, because client sent another packet
-					close(pack.done)
-					pack = newpacket
-				}
-
-				po("LongPoll::Start(): at end of select/long wait.")
-			}
-		*/
 	}()
 
 	return nil
