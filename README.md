@@ -1,6 +1,17 @@
 # pelican-protocol: Do-It-Yourself-Trust
 ![diagram of pelican protocol in action](https://github.com/mailgun/pelican-protocol/blob/master/pelican.png "pelican-protocol-diagram")
 
+Status
+=====
+
+(DO NOT USE YET!)
+
+Still pre-alpha, lots of bugs and it is incomplete. Think of the description below as a proposal for the future.
+
+
+overview
+---------
+
 The Pelican Protocol provides a means of devouring phishing attempts. It applies
 SSH technology to the web, bringing the technology developed for secure 
 console login to everyone. It authenticates both web users and web servers.
