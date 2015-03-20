@@ -117,6 +117,7 @@ func (s *LittlePoll) Start() error {
 
 		// abort if returns false
 		sendReplyUpstream := func() bool {
+
 			if len(oldestReqPack) == 0 {
 
 				select {
@@ -207,6 +208,7 @@ func (s *LittlePoll) Start() error {
 				waitingCliReqs = append(waitingCliReqs, pack)
 				oldestReqPack = waitingCliReqs[0]
 				waitingCliReqs = waitingCliReqs[1:]
+				po("oldestReqPack = '%s'", string(oldestReqPack))
 
 				// add any data from the next 10 msec to return packet to client
 				select {
@@ -259,14 +261,25 @@ func (r *LittlePoll) NoteTmSent() {
 func (r *LittlePoll) ShowTmHistory() {
 	r.mut.Lock()
 	defer r.mut.Unlock()
+	po("LittlePoll.ShowTmHistory() called.")
 	nr := len(r.tmLastRecv)
 	ns := len(r.tmLastSend)
 	min := nr
 	if ns < min {
 		min = ns
 	}
-	if min == 0 {
-		fmt.Printf("%s history: none.\n", r.name)
+	fmt.Printf("%s history: ns=%d.  nr=%d.  min=%d.\n", r.name, ns, nr, min)
+
+	for i := 0; i < ns; i++ {
+		fmt.Printf("%s history of Send from LP to AB '%v'  \n",
+			r.name,
+			r.tmLastSend[i])
+	}
+
+	for i := 0; i < nr; i++ {
+		fmt.Printf("%s history of Recv from AB at LP '%v'  \n",
+			r.name,
+			r.tmLastRecv[i])
 	}
 
 	for i := 0; i < min; i++ {

@@ -627,14 +627,27 @@ func (r *Chaser) NoteTmSent() {
 func (r *Chaser) ShowTmHistory() {
 	r.mut.Lock()
 	defer r.mut.Unlock()
+	po("Chaser.ShowTmHistory() called.")
+
 	nr := len(r.tmLastRecv)
 	ns := len(r.tmLastSend)
 	min := nr
 	if ns < min {
 		min = ns
 	}
-	if min == 0 {
-		fmt.Printf("%s history: none.\n", r.name)
+
+	fmt.Printf("%s history: ns=%d.  nr=%d.  min=%d.\n", r.name, ns, nr, min)
+
+	for i := 0; i < ns; i++ {
+		fmt.Printf("%s history of Send from AB to LP '%v'  \n",
+			r.name,
+			r.tmLastSend[i])
+	}
+
+	for i := 0; i < nr; i++ {
+		fmt.Printf("%s history of Recv from LP at AB '%v'  \n",
+			r.name,
+			r.tmLastRecv[i])
 	}
 
 	for i := 0; i < min; i++ {

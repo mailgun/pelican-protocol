@@ -44,6 +44,7 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 
 		ab.ShowTmHistory()
 
+		fmt.Printf("\n\n")
 		up.hist.ShowHistory()
 		dn.hist.ShowHistory()
 
