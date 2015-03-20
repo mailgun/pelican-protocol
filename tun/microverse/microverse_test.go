@@ -103,3 +103,65 @@ func TestMicroverseShutdownCleanly044(t *testing.T) {
 		cv.So(true, cv.ShouldEqual, true)
 	})
 }
+
+// long-poll timeouts happen during idle no traffic situations.
+func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *testing.T) {
+
+	dn := NewBoundary("downstream")
+
+	ab2lp := make(chan []byte)
+	lp2ab := make(chan []byte)
+
+	longPollDur := 2 * time.Second
+	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
+
+	up := NewBoundary("upstream")
+	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
+
+	dn.Start()
+	defer dn.Stop()
+
+	lp.Start()
+	defer lp.Stop()
+
+	ab.Start()
+	defer ab.Stop()
+
+	up.Start()
+	defer up.Stop()
+
+	cv.Convey("Given a standalone LittlePoll and AB microverse, even without any downstream/upstream Boundary traffic whatsoever, the AB and LP should exchange messages every long-poll timeout; and this should be the only traffic seen.", t, func() {
+
+		// above set long-poll dur to 2 sec, so we should see 2 in this 5 second interval.
+		sleep := 5 * time.Second
+		time.Sleep(sleep)
+		po("after %v sleep", sleep)
+
+		lp.ShowTmHistory()
+		ab.ShowTmHistory()
+
+		alphaAB := ab.home.GetAlphaRoundtripDurationHistory() // []time.Dur
+		betaAB := ab.home.GetBetaRoundtripDurationHistory()   //
+
+		fmt.Printf("alpha RTT: '%v'\n", alphaAB)
+		fmt.Printf("beta RTT: '%v'\n", betaAB)
+
+		cv.So(len(alphaAB), cv.ShouldEqual, 2)
+		cv.So(len(betaAB), cv.ShouldEqual, 2)
+
+		tol := time.Duration(10 * time.Millisecond).Nanoseconds()
+		for _, v := range alphaAB {
+			cv.So(int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()), cv.ShouldBeLessThan, tol)
+		}
+		for _, v := range betaAB {
+			cv.So(int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()), cv.ShouldBeLessThan, tol)
+		}
+	})
+}
+
+func int64Abs(a int64) int64 {
+	if a < 0 {
+		return -a
+	}
+	return a
+}

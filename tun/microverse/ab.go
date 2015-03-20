@@ -407,6 +407,12 @@ type ClientHome struct {
 	localReqArrTm  int64
 	latencyHistory []int64
 	mut            sync.Mutex
+
+	alphaRTT []time.Duration
+	betaRTT  []time.Duration
+
+	lastAlphaDepart time.Time
+	lastBetaDepart  time.Time
 }
 
 func NewClientHome() *ClientHome {
@@ -440,6 +446,9 @@ func NewClientHome() *ClientHome {
 
 		alphaHome: true,
 		betaHome:  true,
+
+		alphaRTT: make([]time.Duration, 0),
+		betaRTT:  make([]time.Duration, 0),
 	}
 	return s
 }
@@ -484,9 +493,13 @@ func (s *ClientHome) Start() {
 			case s.IsBetaHome <- s.betaHome:
 
 			case <-s.alphaArrivesHome:
+				now := time.Now()
+				adur := now.Sub(s.lastAlphaDepart)
+				s.alphaRTT = append(s.alphaRTT, adur)
+
 				// for latency study
 				if s.localReqArrTm > 0 {
-					lat := time.Now().UnixNano() - s.localReqArrTm
+					lat := now.UnixNano() - s.localReqArrTm
 					s.latencyHistory = append(s.latencyHistory, lat)
 					fmt.Printf("\n latency: %v\n", lat)
 					s.localReqArrTm = 0
@@ -507,6 +520,10 @@ func (s *ClientHome) Start() {
 				//VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
+				now := time.Now()
+				adur := now.Sub(s.lastBetaDepart)
+				s.betaRTT = append(s.betaRTT, adur)
+
 				// for latency study
 				if s.localReqArrTm > 0 {
 					lat := time.Now().UnixNano() - s.localReqArrTm
@@ -528,11 +545,13 @@ func (s *ClientHome) Start() {
 				//VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.alphaDepartsHome:
+				s.lastAlphaDepart = time.Now()
 				s.alphaHome = false
 				s.update()
 				//VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
 
 			case <-s.betaDepartsHome:
+				s.lastBetaDepart = time.Now()
 				s.betaHome = false
 				s.update()
 				//VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
@@ -542,7 +561,7 @@ func (s *ClientHome) Start() {
 			case s.shouldBetaGoNow <- s.shouldBetaGoCached:
 
 			case <-s.reqStop:
-				//po("%p home got s.reqStop", s)
+				po("%p home got s.reqStop", s)
 				close(s.Done)
 				return
 
@@ -554,7 +573,6 @@ func (s *ClientHome) Start() {
 					fmt.Printf("\n latency: %v\n", time.Duration(0))
 					s.localReqArrTm = 0 // send done instantly, reset to indicate no pending send.
 				}
-
 			}
 		}
 	}()
@@ -585,7 +603,35 @@ func (s *ClientHome) numHome() (res int) {
 func (s *ClientHome) update() {
 	s.shouldAlphaGoCached = s.shouldAlphaGo()
 	s.shouldBetaGoCached = s.shouldBetaGo()
+}
 
+// unsafe/racy: use only after Chaser is shutdown
+func (home *ClientHome) GetAlphaRoundtripDurationHistory() (artt []time.Duration) {
+	return home.betaRTT
+	/*
+		select {
+		case artt = <-s.CopyAlphaRTT:
+		case <-home.reqStop:
+		}
+		return
+	*/
+}
+
+// unsafe/racy: use only after Chaser is shutdown
+func (home *ClientHome) GetBetaRoundtripDurationHistory() (brtt []time.Duration) {
+	return home.alphaRTT
+	/*
+		select {
+		case brtt = <-s.CopyBetaRTT:
+		case <-home.reqStop:
+		}
+		return
+	*/
+}
+
+// unsafe/racy: use only after Chaser is shutdown
+func (home *ClientHome) LocalSendLatencyHistory() []int64 {
+	return home.latencyHistory
 }
 
 func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, err error) {

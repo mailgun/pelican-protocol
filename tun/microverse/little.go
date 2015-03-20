@@ -110,6 +110,8 @@ func (s *LittlePoll) Start() error {
 		// they are: oldestReqPack, and waitingCliReqs[0], in that order.
 
 		waitingCliReqs := make([][]byte, 0, 2)
+
+		// oldestReqPack is always not nil, but can be empty slice of bytes, []byte{}.
 		var oldestReqPack []byte
 		var countForUpstream int64
 
@@ -143,10 +145,8 @@ func (s *LittlePoll) Start() error {
 		for {
 			po("%p longpoller: at top of LittlePoll loop, inside Start(). len(wait)=%d", s, len(waitingCliReqs))
 
-			if oldestReqPack != nil {
-				po("%p  longpoller: at top of LittlePoll loop, inside Start(). string(oldestReqPack.body='%s'", s, string(oldestReqPack))
-			} else {
-				po("%p  longpoller: oldestReqPack = nil", s)
+			if len(oldestReqPack) > 0 {
+				po("%p  longpoller: at top of LittlePoll loop, inside Start(). string(oldestReqPack.body)='%s'", s, string(oldestReqPack))
 			}
 			select {
 
@@ -159,7 +159,7 @@ func (s *LittlePoll) Start() error {
 			// Only receive if we have a waiting packet body to write to.
 			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
 			case b500 := <-s.down.Generate:
-				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'\n", s, string(b500))
+				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack = %v\n", s, string(b500), string(oldestReqPack))
 
 				curReply = append(curReply, b500...)
 				if !sendReplyUpstream() {
@@ -213,7 +213,7 @@ func (s *LittlePoll) Start() error {
 				// add any data from the next 10 msec to return packet to client
 				select {
 				case b500 := <-s.down.Generate:
-					po("%p  longpoller  <-s.rw.RecvFromDownCh() got b500='%s'\n", s, string(b500))
+					po("%p  longpoller  <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack = '%s'\n", s, string(b500), string(oldestReqPack))
 					curReply = append(curReply, b500...)
 
 				case <-time.After(10 * time.Millisecond):
