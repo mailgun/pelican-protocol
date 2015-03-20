@@ -36,8 +36,12 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 
 	cv.Convey("Given a standalone LittlePoll and AB microverse, with one or more sends (generates) from Upstream, Downstream should see the same number of recevies (absorbs)", t, func() {
 
+		up.hist.ShowHistory()
 		time.Sleep(20 * time.Second)
+
 		lp.ShowTmHistory()
+
+		ab.ShowTmHistory()
 
 		up.hist.ShowHistory()
 		dn.hist.ShowHistory()

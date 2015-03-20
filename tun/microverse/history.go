@@ -57,6 +57,10 @@ func (r *HistoryLog) DeepCopy() *HistoryLog {
 		s.generateHistory = append(s.generateHistory, v.Copy())
 	}
 
+	for _, v := range r.absorbHistory {
+		s.absorbHistory = append(s.absorbHistory, v.Copy())
+	}
+
 	return s
 }
 
@@ -86,7 +90,11 @@ func (s *HistoryLog) ShowHistory() {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	fmt.Printf("%s history:\n", s.name)
+	if len(s.absorbHistory) != len(s.generateHistory) {
+		panic(fmt.Sprintf("INVAR did not hold: our absorb and gen histories must always be the same length!! %v == len(s.absorbHistory) != len(s.generateHistory) == %v", len(s.absorbHistory), len(s.generateHistory)))
+	}
+
+	fmt.Printf("%s history is:\n", s.name)
 	for i := 0; i < len(s.absorbHistory); i++ {
 		if s.absorbHistory[i].when.IsZero() {
 

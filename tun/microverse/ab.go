@@ -634,7 +634,7 @@ func (r *Chaser) ShowTmHistory() {
 		min = ns
 	}
 	if min == 0 {
-		fmt.Printf("Chaser history: none.\n", r.name)
+		fmt.Printf("%s history: none.\n", r.name)
 	}
 
 	for i := 0; i < min; i++ {
