@@ -1,15 +1,18 @@
 package pelicantun
 
+type Req struct {
+}
+
 // request queue can be empty
 type RequestFifo struct {
-	q    []byte
+	q    []*Req
 	size int
 }
 
-func NewRequestFifo(size int) *RequestFifo {
+func NewRequestFifo(capacity int) *RequestFifo {
 	r := &RequestFifo{
-		q:    make([]byte, 0, size),
-		size: size,
+		q:    make([]*Req, 0, capacity),
+		size: capacity,
 	}
 	return r
 }
@@ -25,15 +28,26 @@ func (s *RequestFifo) Empty() bool {
 	return false
 }
 
-func (s *RequestFifo) PushLeft(by []byte) {
-	s.q = append(by, s.q...)
+func (s *RequestFifo) PushLeft(by *Req) {
+	s.q = append([]*Req{by}, s.q...)
 }
 
-func (s *RequestFifo) PopRight() []byte {
+func (s *RequestFifo) PushRight(by *Req) {
+	s.q = append(s.q, by)
+}
+
+func (s *RequestFifo) PopRight() *Req {
+	r := s.PeekRight()
+	n := len(s.q)
+	s.q = s.q[:n-1]
+	return r
+}
+
+func (s *RequestFifo) PeekRight() *Req {
 	if len(s.q) == 0 {
 		return nil
 	}
-	r := s.q[0]
-	s.q = s.q[1:]
+	n := len(s.q)
+	r := s.q[n-1]
 	return r
 }

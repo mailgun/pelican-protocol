@@ -213,6 +213,11 @@ func (s *LittlePoll) Start() error {
 				// arrival.
 				waiters.PushLeft(pack)
 
+				// TODO: instead of fixed 10msec, this threshold should be
+				// 1x the roundtrip time from the client-to-server, since that is
+				// the expected alternative wait time if we have to reply
+				// with an empty reply now.
+				//
 				// add any data from the next 10 msec to return packet to client
 				// hence if the server replies quickly, we can reply quickly
 				// to the client too.

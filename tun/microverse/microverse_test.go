@@ -140,6 +140,10 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 		lp.ShowTmHistory()
 		ab.ShowTmHistory()
 
+		fmt.Printf("\n\n")
+		up.hist.ShowHistory()
+		dn.hist.ShowHistory()
+
 		alphaRTT := ab.home.GetAlphaRoundtripDurationHistory() // []time.Dur
 		betaRTT := ab.home.GetBetaRoundtripDurationHistory()   //
 
