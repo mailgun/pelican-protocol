@@ -82,7 +82,8 @@ func (s *Boundary) Start() {
 
 				if s.doEcho {
 					po("%s is echoing '%s'", s.name, string(by))
-					err = s.Gen(by)
+					echo := []byte(fmt.Sprintf("..%s echo of ('%s')..", s.name, string(by)))
+					err = s.Gen(echo)
 					if err != nil {
 						if err.Error() == "shutdown" {
 							return
@@ -112,6 +113,7 @@ func (s *Boundary) Start() {
 }
 
 func (s *Boundary) Gen(by []byte) error {
+	po("%s Boundary Gen('%s') called.", s.name, string(by))
 	select {
 	case s.Generate <- by:
 		s.hist.RecordGen(by)
