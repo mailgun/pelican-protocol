@@ -36,6 +36,10 @@ func (r *Chaser) ShowTmHistory() {
 	if ns < min {
 		min = ns
 	}
+	if min == 0 {
+		fmt.Printf("Chaser history: none.\n")
+	}
+
 	for i := 0; i < min; i++ {
 		fmt.Printf("Chaser history: elap: '%s'    Send '%v'   Recv '%v'  \n", r.tmLastRecv[i].Sub(r.tmLastSend[i]), r.tmLastSend[i], r.tmLastRecv[i])
 
@@ -58,6 +62,10 @@ func (r *LittlePoll) ShowTmHistory() {
 	if ns < min {
 		min = ns
 	}
+	if min == 0 {
+		fmt.Printf("LittlePoll history: none.\n")
+	}
+
 	for i := 0; i < min; i++ {
 		fmt.Printf("LittlePoll history: elap: '%s'    Recv '%v'   Send '%v'  \n", r.tmLastSend[i].Sub(r.tmLastRecv[i]), r.tmLastRecv[i], r.tmLastSend[i])
 	}

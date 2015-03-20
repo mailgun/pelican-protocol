@@ -14,7 +14,7 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 	ab2lp := make(chan []byte)
 	lp2ab := make(chan []byte)
 
-	lp := NewLittlePoll(15*time.Second, dn, ab2lp, lp2ab)
+	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 
 	up := NewUpstream()
 	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
@@ -32,6 +32,9 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 	defer up.Stop()
 
 	cv.Convey("Given a standalone LittlePoll and AB microverse, with no client/server traffic, the system should only transmit at long-poll timeouts", t, func() {
+
+		time.Sleep(20 * time.Second)
+		lp.ShowTmHistory()
 
 	})
 }

@@ -13,14 +13,31 @@ type Upstream struct {
 
 	Absorb   chan []byte
 	Generate chan []byte
+
+	generateHistory []*Log
+	absorbHistory   []*Log
+}
+
+func (s *Upstream) recordGen(what []byte) {
+	cp := make([]byte, len(what))
+	copy(cp, what)
+	s.generateHistory = append(s.generateHistory, &Log{when: time.Now(), what: cp})
+}
+
+func (s *Upstream) recordAbs(what []byte) {
+	cp := make([]byte, len(what))
+	copy(cp, what)
+	s.absorbHistory = append(s.absorbHistory, &Log{when: time.Now(), what: cp})
 }
 
 func NewUpstream() *Upstream {
 	s := &Upstream{
-		reqStop:  make(chan bool),
-		Done:     make(chan bool),
-		Absorb:   make(chan []byte),
-		Generate: make(chan []byte),
+		reqStop:         make(chan bool),
+		Done:            make(chan bool),
+		Absorb:          make(chan []byte),
+		Generate:        make(chan []byte),
+		generateHistory: make([]*Log, 0),
+		absorbHistory:   make([]*Log, 0),
 	}
 	return s
 }
@@ -38,11 +55,13 @@ func (s *Upstream) Start() {
 				close(s.Done)
 				return
 			case by := <-s.Absorb:
+				s.recordAbs(by)
 				po("upstream absorb sees '%s'", string(by))
 				seen = append(seen, by...)
 			case <-time.After(genDelay):
 				select {
 				case s.Generate <- ng:
+					s.recordGen(ng)
 				case <-s.reqStop:
 					close(s.Done)
 					return

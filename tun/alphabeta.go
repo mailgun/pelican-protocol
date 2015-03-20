@@ -116,6 +116,22 @@ func DefaultChaserConfig() *ChaserConfig {
 	}
 }
 
+func SetChaserConfigDefaults(cfg *ChaserConfig) {
+	def := DefaultChaserConfig()
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = def.ConnectTimeout
+	}
+	if cfg.TransportTimeout == 0 {
+		cfg.TransportTimeout = def.TransportTimeout
+	}
+	if cfg.BufSize == 0 {
+		cfg.BufSize = def.BufSize
+	}
+	if cfg.ShutdownInactiveDur == 0 {
+		cfg.ShutdownInactiveDur = def.ShutdownInactiveDur
+	}
+}
+
 /*
 func example_main() {
 	c := NewChaser()
@@ -149,9 +165,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		panic(fmt.Errorf("dest.Port was 0"))
 	}
 
-	if cfg.ShutdownInactiveDur == 0 {
-		cfg.ShutdownInactiveDur = DefaultChaserConfig().ShutdownInactiveDur
-	}
+	SetChaserConfigDefaults(&cfg)
 
 	rwReaderDone := make(chan *NetConnReader)
 	rwWriterDone := make(chan *NetConnWriter)

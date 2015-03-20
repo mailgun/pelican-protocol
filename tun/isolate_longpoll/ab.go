@@ -65,12 +65,30 @@ func DefaultChaserConfig() *ChaserConfig {
 	}
 }
 
+func SetChaserConfigDefaults(cfg *ChaserConfig) {
+	def := DefaultChaserConfig()
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = def.ConnectTimeout
+	}
+	if cfg.TransportTimeout == 0 {
+		cfg.TransportTimeout = def.TransportTimeout
+	}
+	if cfg.BufSize == 0 {
+		cfg.BufSize = def.BufSize
+	}
+	if cfg.ShutdownInactiveDur == 0 {
+		cfg.ShutdownInactiveDur = def.ShutdownInactiveDur
+	}
+}
+
 func NewChaser(
 	cfg ChaserConfig,
 	incoming chan []byte,
 	repliesHere chan []byte,
 	ab2lp chan []byte,
 	lp2ab chan []byte) *Chaser {
+
+	SetChaserConfigDefaults(&cfg)
 
 	s := &Chaser{
 		lp2ab:   lp2ab,
@@ -123,7 +141,7 @@ func (s *Chaser) StopWithoutReporting() {
 
 // Stop the Chaser.
 func (s *Chaser) Stop() {
-	po("%p Chaser stopping.\n", s)
+	//po("%p Chaser stopping.\n", s)
 
 	s.RequestStop()
 
@@ -131,7 +149,7 @@ func (s *Chaser) Stop() {
 	<-s.betaDone
 	s.home.Stop()
 
-	po("%p chaser all done.\n", s)
+	//po("%p chaser all done.\n", s)
 	close(s.Done)
 }
 
@@ -153,11 +171,11 @@ func (s *Chaser) RequestStop() bool {
 
 func (s *Chaser) startAlpha() {
 	go func() {
-		po("%p alpha at top of startAlpha", s)
+		//po("%p alpha at top of startAlpha", s)
 
 		defer func() {
 			close(s.alphaDone)
-			po("%p Alpha done.", s)
+			//po("%p Alpha done.", s)
 		}()
 
 		var work []byte
@@ -168,7 +186,7 @@ func (s *Chaser) startAlpha() {
 			select {
 			case goNow = <-s.home.shouldAlphaGoNow:
 			case <-s.reqStop:
-				po("%p Alpha got s.reqStop", s)
+				//po("%p Alpha got s.reqStop", s)
 				return
 			}
 			if !goNow {
@@ -180,10 +198,10 @@ func (s *Chaser) startAlpha() {
 
 					// launch with the data in work
 				case <-s.reqStop:
-					po("%p Alpha got s.reqStop", s)
+					//po("%p Alpha got s.reqStop", s)
 					return
 				case <-s.betaDone:
-					po("%p Alpha got s.betaDone", s)
+					//po("%p Alpha got s.betaDone", s)
 					return
 				case <-s.home.tellAlphaToGo:
 					po("%p alpha got s.home.tellAlphaToGo.\n", s)
@@ -237,7 +255,7 @@ func (s *Chaser) startAlpha() {
 			select {
 			case s.repliesHere <- replyBytes:
 			case <-s.reqStop:
-				po("%p Alpha got s.reqStop", s)
+				//po("%p Alpha got s.reqStop", s)
 				return
 			}
 		}
@@ -248,10 +266,10 @@ func (s *Chaser) startAlpha() {
 // connection.
 func (s *Chaser) startBeta() {
 	go func() {
-		po("%p beta at top of startBeta", s)
+		//po("%p beta at top of startBeta", s)
 		defer func() {
 			close(s.betaDone)
-			po("%p Beta done.", s)
+			//po("%p Beta done.", s)
 		}()
 		var work []byte
 		var goNow bool
@@ -262,7 +280,7 @@ func (s *Chaser) startBeta() {
 			case goNow = <-s.home.shouldBetaGoNow:
 				po("%p Beta got goNow = %v", s, goNow)
 			case <-s.reqStop:
-				po("%p Beta got s.reqStop", s)
+				//po("%p Beta got s.reqStop", s)
 				return
 			}
 
@@ -274,7 +292,7 @@ func (s *Chaser) startBeta() {
 					po("%p beta got work on s.incoming '%s'.\n", s, string(work))
 					// launch with the data in work
 				case <-s.reqStop:
-					po("%p Beta got s.reqStop", s)
+					//po("%p Beta got s.reqStop", s)
 					return
 				case <-s.alphaDone:
 					return
@@ -325,7 +343,7 @@ func (s *Chaser) startBeta() {
 			select {
 			case s.repliesHere <- replyBytes:
 			case <-s.reqStop:
-				po("%p Beta got s.reqStop", s)
+				//po("%p Beta got s.reqStop", s)
 				return
 			}
 
@@ -421,7 +439,7 @@ func NewClientHome() *ClientHome {
 }
 
 func (s *ClientHome) Stop() {
-	po("%p client home stop requested", s)
+	//po("%p client home stop requested", s)
 	s.RequestStop()
 	<-s.Done
 }
@@ -447,11 +465,11 @@ func (s *ClientHome) String() string {
 }
 
 func (s *ClientHome) Start() {
-	po("%p home starting.", s)
+	//po("%p home starting.", s)
 
 	go func() {
 		defer func() {
-			po("%p home done.", s)
+			//po("%p home done.", s)
 		}()
 		for {
 			select {
@@ -518,7 +536,7 @@ func (s *ClientHome) Start() {
 			case s.shouldBetaGoNow <- s.shouldBetaGoCached:
 
 			case <-s.reqStop:
-				po("%p home got s.reqStop", s)
+				//po("%p home got s.reqStop", s)
 				close(s.Done)
 				return
 
@@ -568,6 +586,8 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 
 	select {
 	case s.ab2lp <- work:
+		s.NoteTmSent()
+
 	case <-s.reqStop:
 		po("Chaser reqStop before ab2lp request to lp issued")
 		return
@@ -575,6 +595,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 
 	select {
 	case back = <-s.lp2ab:
+		s.NoteTmRecv()
 	case <-s.reqStop:
 		po("Chaser reqStop before lp2ab reply received")
 		return
