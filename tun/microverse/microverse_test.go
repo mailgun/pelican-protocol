@@ -48,6 +48,11 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 		cv.So(len(uh.generateHistory), cv.ShouldBeGreaterThan, 1)
 		cv.So(len(dh.absorbHistory), cv.ShouldBeGreaterThan, 1)
 
+		po("uh.CountGenerates() = %v", uh.CountGenerates())
+		po("dh.CountGenerates() = %v", dh.CountGenerates())
+		po("uh.CountAbsorbs() = %v", uh.CountAbsorbs())
+		po("dh.CountAbsorbs() = %v", dh.CountAbsorbs())
+
 		// sent by upstream should be received by downstream
 		cv.So(uh.CountGenerates(), cv.ShouldEqual, dh.CountAbsorbs())
 

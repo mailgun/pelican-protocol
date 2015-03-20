@@ -50,6 +50,8 @@ func (r *HistoryLog) DeepCopy() *HistoryLog {
 		generateHistory: make([]*Log, len(r.generateHistory)),
 		absorbHistory:   make([]*Log, len(r.absorbHistory)),
 		name:            r.name,
+		numAbs:          r.numAbs,
+		numGen:          r.numGen,
 	}
 	for _, v := range r.generateHistory {
 		s.generateHistory = append(s.generateHistory, v.Copy())
