@@ -1,17 +1,26 @@
 # pelican-protocol: Do-It-Yourself-Trust
 ![diagram of pelican protocol in action](https://github.com/mailgun/pelican-protocol/blob/master/pelican.png "pelican-protocol-diagram")
 
-Pelicans are ferocious eaters of fish. According to wikipedia, in ancient Egypt the pelican "was believed to possess the ability to prophesy safe passage in the underworld."[1] Pelicans are gregarious and nest colonially. Pairs are monogamous for a single season, but the pair bond extends only to the nesting area; mates are independent away from the nest.[2]
+The Pelican Protocol provides a means of devouring phishing attempts. It applies
+SSH technology to the web, bringing the technology developed for secure 
+console login to everyone. It authenticates both web users and web servers.
+Every website you visit using the Pelican Protcol knows you by a unique key,
+and it is impossible to mix up credentials and sites. Instead of 100s of
+passwords to create and remember, there is a single strong pass phrase that
+is entered once at machine start time.
 
+This is a greenfield project. We deliberately ignore the prior
+work of TLS, SSL, and certificate authorities. 
 
-The Pelican Protocol provides a means of devouring phishing attempts. 
+We propose a decentalized, do-it-yourself trust model. Our design offers
+a sane user experience for both users of web browsers and for
+web application developers.
 
-TLS is not enough. It is time to experiment with security stronger than TLS.
 
 Advantages for website developers and operators
 ------------------------------------------------
 
-Suppose you are a website owner who doesn't currently have SSL/TLS certificates and is running a good old plain HTTP site. You think TLS/x509 certificates are painful and costly, and you are right. By running the Pelican Server (reverse proxy) on your machine at port 443, you provide a zero-cost, high-security means of accessing your plain http website. And if decide to get certificates later, you can still keep running Pelican's additional anti-phishing protection.
+Suppose you are a website owner who doesn't currently have SSL/TLS certificates and is running a good old plain HTTP site. You think TLS/x509 certificates are painful and costly, and you are right. By running the Pelican Server (reverse proxy) on your machine, you provide a zero-cost, high-security means of accessing your plain http website. And if decide to get certificates later, you can still keep running Pelican's additional anti-phishing protection.
 
 Advantages for web browsers
 ---------------------------
@@ -48,8 +57,4 @@ Q: Is the server's hostkey bound to a particular domain name suffix or IP addres
 A: Nope. The private RSA key that identifies the server can be moved, backed-up, and restored onto a different IP address. Does this mean that if my private keys are stolen, then my site can be impersonated? Absolutely. Protect your keys with a strong passphrase, and use the auto-backup so you don't loose them.
 
 
-
-[1]  Hart, George (2005). The Routledge Dictionary Of Egyptian Gods And Goddesses. Routledge Dictionaries. Abingdon, United Kingdom: Routledge. p. 125. ISBN 978-0-415-34495-1. Cite 99 of http://en.wikipedia.org/wiki/Pelican.
-
-[2] http://en.wikipedia.org/wiki/Pelican
 

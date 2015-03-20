@@ -1,6 +1,8 @@
 /*
-portions Copyright 2015 Rackspace Hosting Inc.
-portions Copyright 2013 Google Inc.
+portions Copyright 2015 Rackspace Hosting Inc. Pelican-protocol and all
+current code.
+portions Copyright 2013 Google Inc. (a distant ancestor is
+Andrew Gerand's gohttptun library that is under the Apache 2 license.)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
