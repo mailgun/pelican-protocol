@@ -367,9 +367,7 @@ func (s *Chaser) startAlpha() {
 				}
 			}
 
-			if len(work) == 0 {
-				continue
-			} else {
+			if len(work) > 0 {
 				// actual bytes to send!
 				s.ResetActiveTimer()
 			}
@@ -457,9 +455,7 @@ func (s *Chaser) startBeta() {
 				}
 			}
 
-			if len(work) == 0 {
-				continue
-			} else {
+			if len(work) > 0 {
 				s.ResetActiveTimer()
 			}
 

@@ -109,45 +109,46 @@ func (s *LittlePoll) Start() error {
 		// keep at most 2 cliRequests on hand, cycle them in FIFO order.
 		// they are: oldestReqPack, and waitingCliReqs[0], in that order.
 
-		waitingCliReqs := make([][]byte, 0, 2)
+		waiters := NewRequestFifo(2)
 
-		// oldestReqPack is always not nil, but can be empty slice of bytes, []byte{}.
-		var oldestReqPack []byte
 		var countForUpstream int64
 
 		curReply := make([]byte, 0, 4096)
 
-		// abort if returns false
+		// tries to send, and does if we have
+		// a waiting request to send on.
+		//
+		// returns false iff we got s.reqStop
+		// while trying to send.
 		sendReplyUpstream := func() bool {
 
-			if len(oldestReqPack) == 0 {
+			if waiters.Empty() {
+				return true
+			}
 
-				select {
-				case s.lp2ab <- curReply: // !send
-					s.NoteTmSent()
+			select {
+			// in real code: send curReply on r, where
+			// r:= waiters.PeekRight()
 
-				case <-s.reqStop:
-					po("lp sendReplyUpstream got reqStop, returning false")
-					return false
-				}
+			case s.lp2ab <- curReply: // send
+				waiters.PopRight()
+				s.NoteTmSent()
 				countForUpstream = 0
-				if len(waitingCliReqs) > 0 {
-					oldestReqPack = waitingCliReqs[0]
-					waitingCliReqs = waitingCliReqs[1:]
-				} else {
-					oldestReqPack = oldestReqPack[:0]
-					longPollTimeUp.Stop()
-				}
+
+			case <-s.reqStop:
+				po("lp sendReplyUpstream got reqStop, returning false")
+				return false
+			}
+
+			if waiters.Empty() {
+				longPollTimeUp.Stop()
 			}
 			return true
 		}
 
 		for {
-			po("%p longpoller: at top of LittlePoll loop, inside Start(). len(wait)=%d", s, len(waitingCliReqs))
+			po("%p longpoller: at top of LittlePoll loop, inside Start(). len(wait)=%d", s, waiters.Len())
 
-			if len(oldestReqPack) > 0 {
-				po("%p  longpoller: at top of LittlePoll loop, inside Start(). string(oldestReqPack.body)='%s'", s, string(oldestReqPack))
-			}
 			select {
 
 			case <-longPollTimeUp.C:
@@ -159,9 +160,10 @@ func (s *LittlePoll) Start() error {
 			// Only receive if we have a waiting packet body to write to.
 			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
 			case b500 := <-s.down.Generate:
-				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack = %v\n", s, string(b500), string(oldestReqPack))
+				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'.\n", s, string(b500))
 
 				curReply = append(curReply, b500...)
+
 				if !sendReplyUpstream() {
 					return
 				}
@@ -182,20 +184,23 @@ func (s *LittlePoll) Start() error {
 
 				po("%p  just before s.rw.SendToDownCh()", s)
 
-				// we got data from the client for server!
-				// read from the request body and write to the ResponseWriter
-				select {
-				// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
-				// in fact we do want the back pressure to keep us from
-				// writing too much too fast.
-				case s.down.Absorb <- pack:
-					po("%p  sent data on s.downAbsorb <- pack", s)
-					//po("%p  sent data on s.rw.SendToDownCh()", s)
-				case <-s.reqStop:
-					po("%p  got reqStop, *not* returning", s)
-					// avoid deadlock on shutdown, but do
-					// finish processing this packet, don't return yet
-				}
+				if len(pack) > 0 {
+					// we got data from the client for server!
+					// read from the request body and write to the ResponseWriter
+					select {
+					// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
+					// in fact we do want the back pressure to keep us from
+					// writing too much too fast.
+					case s.down.Absorb <- pack:
+						po("%p  sent data on s.downAbsorb <- pack", s)
+						//po("%p  sent data on s.rw.SendToDownCh()", s)
+					case <-s.reqStop:
+						po("%p  got reqStop, *not* returning", s)
+						// avoid deadlock on shutdown, but do
+						// finish processing this packet, don't return yet
+					}
+				} // end if len(pack) > 0
+
 				po("%p  just after s.down.Absorb <- pack", s)
 				//po("%p  just after s.rw.SendToDownCh()", s)
 
@@ -205,15 +210,14 @@ func (s *LittlePoll) Start() error {
 				// get serviced mostly FIFO this way, and our long-poll
 				// timer reflects the time since the most recent packet
 				// arrival.
-				waitingCliReqs = append(waitingCliReqs, pack)
-				oldestReqPack = waitingCliReqs[0]
-				waitingCliReqs = waitingCliReqs[1:]
-				po("oldestReqPack = '%s'", string(oldestReqPack))
+				waiters.PushLeft(pack)
 
 				// add any data from the next 10 msec to return packet to client
+				// hence if the server replies quickly, we can reply quickly
+				// to the client too.
 				select {
 				case b500 := <-s.down.Generate:
-					po("%p  longpoller  <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack = '%s'\n", s, string(b500), string(oldestReqPack))
+					po("%p  longpoller  <-s.rw.RecvFromDownCh() got b500='%s'\n", s, string(b500))
 					curReply = append(curReply, b500...)
 
 				case <-time.After(10 * time.Millisecond):
@@ -223,12 +227,16 @@ func (s *LittlePoll) Start() error {
 					// we got upstream to client.
 				}
 
-				if countForUpstream > 0 || len(waitingCliReqs) > 0 {
+				// key piece of logic for the long-poll is here:
+				// reply immediately under two conditions: there
+				// are bytes to send back upstream, or we have
+				// more than one of the alpha/beta parked here.
+				if len(curReply) > 0 || waiters.Len() > 1 {
 					if !sendReplyUpstream() {
 						return
 					}
 				} else {
-					po("%p  LongPoll countForUpstream(%d); len(waitingCliReqs)==%d  ...response so far: '%s'", s, countForUpstream, len(waitingCliReqs), string(oldestReqPack))
+					po("%p  LongPoll len(curReply) == %d; waiters.Len()==%d", s, len(curReply), waiters.Len())
 				}
 
 				// end case pack = <-s.ClientPacketRecvd:

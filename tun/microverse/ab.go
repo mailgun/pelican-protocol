@@ -320,9 +320,7 @@ func (s *Chaser) startBeta() {
 				}
 			}
 
-			if len(work) == 0 {
-				continue
-			} else {
+			if len(work) > 0 {
 				s.ResetActiveTimer()
 			}
 

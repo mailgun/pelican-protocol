@@ -81,7 +81,9 @@ func (s *Boundary) Start() {
 				seen = append(seen, by...)
 
 				if s.doEcho {
-					po("%s is echoing '%s'", s.name, string(by))
+					cpby := make([]byte, len(by))
+					copy(cpby, by)
+					po("%s is echoing '%s'", s.name, string(cpby))
 					echo := []byte(fmt.Sprintf("..%s echo of ('%s')..", s.name, string(by)))
 					err = s.Gen(echo)
 					if err != nil {
