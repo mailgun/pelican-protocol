@@ -14,7 +14,7 @@ type LittlePoll struct {
 
 	mut sync.Mutex
 
-	down *Downstream
+	down *Boundary
 
 	ab2lp chan []byte
 	lp2ab chan []byte
@@ -27,15 +27,15 @@ type LittlePoll struct {
 	name string
 }
 
-func NewLittlePoll(pollDur time.Duration, dn *Downstream, ab2lp chan []byte, lp2ab chan []byte) *LittlePoll {
+func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan []byte, lp2ab chan []byte) *LittlePoll {
 
 	s := &LittlePoll{
 		reqStop:    make(chan bool),
 		Done:       make(chan bool),
 		pollDur:    pollDur,
-		ab2lp:      ab2lp,
-		lp2ab:      lp2ab,
-		down:       dn,
+		ab2lp:      ab2lp, // receive from "socks-proxy" (Chaser)
+		lp2ab:      lp2ab, // send to "socks-proxy" (Chaser)
+		down:       dn,    // the "web-server", downstream most boundary target.
 		tmLastSend: make([]time.Time, 0),
 		tmLastRecv: make([]time.Time, 0),
 		name:       "LittlePoll",

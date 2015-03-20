@@ -9,16 +9,17 @@ import (
 
 func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 
-	dn := NewDownstream()
+	dn := NewBoundary("downstream")
 
 	ab2lp := make(chan []byte)
 	lp2ab := make(chan []byte)
 
 	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 
-	up := NewUpstream()
+	up := NewBoundary("upstream")
 	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
+	dn.SetEcho(true)
 	dn.Start()
 	defer dn.Stop()
 
@@ -37,7 +38,7 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 	cv.Convey("Given a standalone LittlePoll and AB microverse, with one or more sends (generates) from Upstream, Downstream should see the same number of recevies (absorbs)", t, func() {
 
 		up.hist.ShowHistory()
-		time.Sleep(20 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		lp.ShowTmHistory()
 
@@ -70,15 +71,15 @@ func TestMicroverseShutdownCleanly044(t *testing.T) {
 
 	cv.Convey("Given a standalone LittlePoller and AB microverse, it should startup and shutdown without deadlock", t, func() {
 
-		dn := NewDownstream()
+		dn := NewBoundary("downstream")
 
 		ab2lp := make(chan []byte)
 		lp2ab := make(chan []byte)
 
-		lp := NewLittlePoll(15*time.Second, dn, ab2lp, lp2ab)
+		lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 
-		up := NewUpstream()
-		up.SendEvery(24 * time.Hour)
+		up := NewBoundary("upstream")
+
 		ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
 		dn.Start()
