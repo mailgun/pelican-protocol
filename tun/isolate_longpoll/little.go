@@ -19,17 +19,22 @@ type LittlePoll struct {
 	lp2ab chan []byte
 
 	recvCount int
+
+	tmLastSend []time.Time
+	tmLastRecv []time.Time
 }
 
 func NewLittlePoll(pollDur time.Duration, dn *Downstream, ab2lp chan []byte, lp2ab chan []byte) *LittlePoll {
 
 	s := &LittlePoll{
-		reqStop: make(chan bool),
-		Done:    make(chan bool),
-		pollDur: pollDur,
-		ab2lp:   ab2lp,
-		lp2ab:   lp2ab,
-		down:    dn,
+		reqStop:    make(chan bool),
+		Done:       make(chan bool),
+		pollDur:    pollDur,
+		ab2lp:      ab2lp,
+		lp2ab:      lp2ab,
+		down:       dn,
+		tmLastSend: make([]time.Time, 0),
+		tmLastRecv: make([]time.Time, 0),
 	}
 
 	return s
@@ -112,6 +117,8 @@ func (s *LittlePoll) Start() error {
 
 				select {
 				case s.lp2ab <- curReply: // !send
+					s.NoteTmSent()
+
 				case <-s.reqStop:
 					po("lp sendReplyUpstream got reqStop, returning false")
 					return false
@@ -156,6 +163,7 @@ func (s *LittlePoll) Start() error {
 
 			case pack = <-s.ab2lp:
 				s.recvCount++
+				s.NoteTmRecv()
 				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
 
 				// reset timer. only hold this packet open for at most 'dur' time.
@@ -200,7 +208,6 @@ func (s *LittlePoll) Start() error {
 				select {
 				case b500 := <-s.down.Generate:
 					po("%p  longpoller  <-s.rw.RecvFromDownCh() got b500='%s'\n", s, string(b500))
-
 					curReply = append(curReply, b500...)
 
 				case <-time.After(10 * time.Millisecond):

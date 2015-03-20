@@ -9,35 +9,30 @@ import (
 
 func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 
-	cv.Convey("Given a standalone LittlePoller and AB microverse, with no client/server traffic, the system should only transmit at long-poll timeouts", t, func() {
+	dn := NewDownstream()
 
-		dn := NewDownstream()
+	ab2lp := make(chan []byte)
+	lp2ab := make(chan []byte)
 
-		ab2lp := make(chan []byte)
-		lp2ab := make(chan []byte)
+	lp := NewLittlePoll(15*time.Second, dn, ab2lp, lp2ab)
 
-		lp := NewLittlePoll(15*time.Second, dn, ab2lp, lp2ab)
+	up := NewUpstream()
+	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
-		up := NewUpstream()
-		ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
+	dn.Start()
+	defer dn.Stop()
 
-		// keep compiler happy
-		po("lp: %p, ab: %p, ab2lp: %p, lp2ab: %p, up: %p, dn:%p", lp, ab, &ab2lp, &lp2ab, &up, &dn)
+	lp.Start()
+	defer lp.Stop()
 
-		dn.Start()
-		defer dn.Stop()
+	ab.Start()
+	defer ab.Stop()
 
-		lp.Start()
-		defer lp.Stop()
+	up.Start()
+	defer up.Stop()
 
-		ab.Start()
-		defer ab.Stop()
+	cv.Convey("Given a standalone LittlePoll and AB microverse, with no client/server traffic, the system should only transmit at long-poll timeouts", t, func() {
 
-		up.Start()
-		defer up.Stop()
-
-		fmt.Printf("so we should not deadlock on shutdown after this")
-		//cv.So(string(pack2.respdup.Bytes()), cv.ShouldResemble, msg+"1")
 	})
 }
 
@@ -55,14 +50,12 @@ func TestMicroverseShutdownCleanly044(t *testing.T) {
 		up := NewUpstream()
 		ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
-		// keep compiler happy
-		po("lp: %p, ab: %p, ab2lp: %p, lp2ab: %p, up: %p, dn:%p", lp, ab, &ab2lp, &lp2ab, &up, &dn)
-
 		dn.Start()
 		lp.Start()
 		ab.Start()
 		up.Start()
 
+		// either order works
 		//		dn.Stop()
 		//		lp.Stop()
 		//		ab.Stop()

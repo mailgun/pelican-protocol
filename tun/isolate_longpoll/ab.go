@@ -44,6 +44,9 @@ type Chaser struct {
 
 	lp2ab chan []byte
 	ab2lp chan []byte
+
+	tmLastRecv []time.Time
+	tmLastSend []time.Time
 }
 
 type ChaserConfig struct {
@@ -88,6 +91,8 @@ func NewChaser(
 
 		shutdownInactiveDur: cfg.ShutdownInactiveDur,
 		inactiveTimer:       time.NewTimer(cfg.ShutdownInactiveDur),
+		tmLastSend:          make([]time.Time, 0),
+		tmLastRecv:          make([]time.Time, 0),
 	}
 
 	// always closed
