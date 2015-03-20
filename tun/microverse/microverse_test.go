@@ -140,20 +140,24 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 		lp.ShowTmHistory()
 		ab.ShowTmHistory()
 
-		alphaAB := ab.home.GetAlphaRoundtripDurationHistory() // []time.Dur
-		betaAB := ab.home.GetBetaRoundtripDurationHistory()   //
+		alphaRTT := ab.home.GetAlphaRoundtripDurationHistory() // []time.Dur
+		betaRTT := ab.home.GetBetaRoundtripDurationHistory()   //
 
-		fmt.Printf("alpha RTT: '%v'\n", alphaAB)
-		fmt.Printf("beta RTT: '%v'\n", betaAB)
+		fmt.Printf("alpha RTT: '%v'\n", alphaRTT)
+		fmt.Printf("beta RTT: '%v'\n", betaRTT)
 
-		cv.So(len(alphaAB), cv.ShouldEqual, 2)
-		cv.So(len(betaAB), cv.ShouldEqual, 2)
+		cv.So(len(alphaRTT), cv.ShouldEqual, 2)
+
+		// given the choice of alpha and beta going, we prefer alpha
+		// to get more socket re-use. So in idle situations like this,
+		// beta should have not round trips.
+		cv.So(len(betaRTT), cv.ShouldEqual, 0)
 
 		tol := time.Duration(10 * time.Millisecond).Nanoseconds()
-		for _, v := range alphaAB {
+		for _, v := range alphaRTT {
 			cv.So(int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()), cv.ShouldBeLessThan, tol)
 		}
-		for _, v := range betaAB {
+		for _, v := range betaRTT {
 			cv.So(int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()), cv.ShouldBeLessThan, tol)
 		}
 	})

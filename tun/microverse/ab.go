@@ -195,6 +195,8 @@ func (s *Chaser) startAlpha() {
 				//po("%p Alpha got s.reqStop", s)
 				return
 			}
+			po("%p Alpha got goNow = %v", s, goNow)
+
 			if !goNow {
 
 				// only I am home, so wait for an event.
@@ -228,12 +230,12 @@ func (s *Chaser) startAlpha() {
 				}
 			}
 
-			if len(work) == 0 {
-				continue
-			} else {
+			if len(work) > 0 {
 				// actual bytes to send!
 				s.ResetActiveTimer()
 			}
+			// else must send out anyway, since we may be just long-polling for
+			// keep-alive and server sending purposes.
 
 			// send request to server
 			s.home.alphaDepartsHome <- true
@@ -480,11 +482,11 @@ func (s *ClientHome) String() string {
 }
 
 func (s *ClientHome) Start() {
-	//po("%p home starting.", s)
+	po("%p home starting.", s)
 
 	go func() {
 		defer func() {
-			//po("%p home done.", s)
+			po("%p home done.", s)
 		}()
 		for {
 			select {
@@ -507,7 +509,7 @@ func (s *ClientHome) Start() {
 
 				s.alphaHome = true
 
-				//VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Alpha
 				if s.betaHome {
@@ -517,7 +519,7 @@ func (s *ClientHome) Start() {
 					}
 				}
 				s.update()
-				//VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
 				now := time.Now()
@@ -532,7 +534,7 @@ func (s *ClientHome) Start() {
 					s.localReqArrTm = 0
 				}
 				s.betaHome = true
-				//VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Beta
 				if s.alphaHome {
@@ -542,19 +544,19 @@ func (s *ClientHome) Start() {
 					}
 				}
 				s.update()
-				//VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
+				VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.alphaDepartsHome:
 				s.lastAlphaDepart = time.Now()
 				s.alphaHome = false
 				s.update()
-				//VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
+				VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
 
 			case <-s.betaDepartsHome:
 				s.lastBetaDepart = time.Now()
 				s.betaHome = false
 				s.update()
-				//VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
+				VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
 
 			case s.shouldAlphaGoNow <- s.shouldAlphaGoCached:
 
@@ -607,7 +609,7 @@ func (s *ClientHome) update() {
 
 // unsafe/racy: use only after Chaser is shutdown
 func (home *ClientHome) GetAlphaRoundtripDurationHistory() (artt []time.Duration) {
-	return home.betaRTT
+	return home.alphaRTT
 	/*
 		select {
 		case artt = <-s.CopyAlphaRTT:
@@ -619,7 +621,7 @@ func (home *ClientHome) GetAlphaRoundtripDurationHistory() (artt []time.Duration
 
 // unsafe/racy: use only after Chaser is shutdown
 func (home *ClientHome) GetBetaRoundtripDurationHistory() (brtt []time.Duration) {
-	return home.alphaRTT
+	return home.betaRTT
 	/*
 		select {
 		case brtt = <-s.CopyBetaRTT:
