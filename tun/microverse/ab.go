@@ -262,6 +262,7 @@ func (s *Chaser) startAlpha() {
 			// deliver any response data (body) to our client
 			select {
 			case s.repliesHere <- replyBytes:
+				po("*p Alpha sent to repliesHere: '%s'", string(replyBytes))
 			case <-s.reqStop:
 				//po("%p Alpha got s.reqStop", s)
 				return
@@ -647,6 +648,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 
 	select {
 	case back = <-s.lp2ab:
+		po("DoRequestResponse got from lp2ab: '%s'", string(back))
 		s.NoteTmRecv()
 	case <-s.reqStop:
 		po("Chaser reqStop before lp2ab reply received")

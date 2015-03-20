@@ -134,6 +134,7 @@ func (s *LittlePoll) Start() error {
 				waiters.PopRight()
 				s.NoteTmSent()
 				countForUpstream = 0
+				curReply = curReply[:0]
 
 			case <-s.reqStop:
 				po("lp sendReplyUpstream got reqStop, returning false")
