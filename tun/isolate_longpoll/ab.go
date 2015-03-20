@@ -150,6 +150,11 @@ func (s *Chaser) startAlpha() {
 	go func() {
 		po("%p alpha at top of startAlpha", s)
 
+		defer func() {
+			close(s.alphaDone)
+			po("%p Alpha done.", s)
+		}()
+
 		var work []byte
 		var goNow bool
 		for {

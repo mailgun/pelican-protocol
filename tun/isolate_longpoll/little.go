@@ -106,11 +106,16 @@ func (s *LittlePoll) Start() error {
 
 		curReply := make([]byte, 0, 4096)
 
-		sendReplyUpstream := func() {
+		// abort if returns false
+		sendReplyUpstream := func() bool {
 			if len(oldestReqPack) == 0 {
 
-				s.lp2ab <- curReply // !send
-
+				select {
+				case s.lp2ab <- curReply: // !send
+				case <-s.reqStop:
+					po("lp sendReplyUpstream got reqStop, returning false")
+					return false
+				}
 				countForUpstream = 0
 				if len(waitingCliReqs) > 0 {
 					oldestReqPack = waitingCliReqs[0]
@@ -120,6 +125,7 @@ func (s *LittlePoll) Start() error {
 					longPollTimeUp.Stop()
 				}
 			}
+			return true
 		}
 
 		for {
@@ -134,7 +140,9 @@ func (s *LittlePoll) Start() error {
 
 			case <-longPollTimeUp.C:
 				po("%p  longPollTimeUp!!", s)
-				sendReplyUpstream()
+				if !sendReplyUpstream() {
+					return
+				}
 
 			// Only receive if we have a waiting packet body to write to.
 			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
@@ -142,7 +150,9 @@ func (s *LittlePoll) Start() error {
 				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'\n", s, string(b500))
 
 				curReply = append(curReply, b500...)
-				sendReplyUpstream()
+				if !sendReplyUpstream() {
+					return
+				}
 
 			case pack = <-s.ab2lp:
 				s.recvCount++
@@ -201,7 +211,9 @@ func (s *LittlePoll) Start() error {
 				}
 
 				if countForUpstream > 0 || len(waitingCliReqs) > 0 {
-					sendReplyUpstream()
+					if !sendReplyUpstream() {
+						return
+					}
 				} else {
 					po("%p  LongPoll countForUpstream(%d); len(waitingCliReqs)==%d  ...response so far: '%s'", s, countForUpstream, len(waitingCliReqs), string(oldestReqPack))
 				}
