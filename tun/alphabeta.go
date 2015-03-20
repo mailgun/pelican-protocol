@@ -226,7 +226,7 @@ func (s *Chaser) Stop() {
 	s.rw.Stop()
 
 	<-s.alphaDone
-	<-s.betaDone // 010 is hanging here, waiting for beta to finish
+	<-s.betaDone
 	<-s.monitorDone
 	s.home.Stop()
 
@@ -603,7 +603,7 @@ func (s *ClientHome) Start() {
 			po("%p home done.", s)
 		}()
 		for {
-			select { // 010 is blocked here. 01a too. 006 too.
+			select {
 
 			case s.IsAlphaHome <- s.alphaHome:
 			case s.IsBetaHome <- s.betaHome:
