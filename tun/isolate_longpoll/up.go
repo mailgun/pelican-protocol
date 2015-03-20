@@ -22,12 +22,35 @@ func (s *Upstream) recordGen(what []byte) {
 	cp := make([]byte, len(what))
 	copy(cp, what)
 	s.generateHistory = append(s.generateHistory, &Log{when: time.Now(), what: cp})
+	s.absorbHistory = append(s.absorbHistory, &Log{}) // make spacing apparent
 }
 
 func (s *Upstream) recordAbs(what []byte) {
 	cp := make([]byte, len(what))
 	copy(cp, what)
 	s.absorbHistory = append(s.absorbHistory, &Log{when: time.Now(), what: cp})
+	s.generateHistory = append(s.generateHistory, &Log{})
+}
+
+func (s *Upstream) showHistory() {
+	fmt.Printf("Upstream history:\n")
+	for i := 0; i < len(s.absorbHistory); i++ {
+		if s.absorbHistory[i].when.IsZero() {
+
+		} else {
+			fmt.Printf("Abs @ %v: '%s'\n",
+				s.absorbHistory[i].when,
+				string(s.absorbHistory[i].what))
+		}
+
+		if s.generateHistory[i].when.IsZero() {
+
+		} else {
+			fmt.Printf("Gen @ %v:                  '%s'\n",
+				s.generateHistory[i].when,
+				string(s.generateHistory[i].what))
+		}
+	}
 }
 
 func NewUpstream() *Upstream {

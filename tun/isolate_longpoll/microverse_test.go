@@ -36,6 +36,8 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 		time.Sleep(20 * time.Second)
 		lp.ShowTmHistory()
 
+		up.showHistory()
+		dn.showHistory()
 	})
 }
 

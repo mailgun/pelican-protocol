@@ -488,7 +488,7 @@ func (s *ClientHome) Start() {
 
 				s.alphaHome = true
 
-				VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  home received alphaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Alpha
 				if s.betaHome {
@@ -498,7 +498,7 @@ func (s *ClientHome) Start() {
 					}
 				}
 				s.update()
-				VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  end of alphaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.betaArrivesHome:
 				// for latency study
@@ -509,7 +509,7 @@ func (s *ClientHome) Start() {
 					s.localReqArrTm = 0
 				}
 				s.betaHome = true
-				VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  home received betaArrivesHome. state of Home= '%s'\n", s)
 
 				s.lastHome = Beta
 				if s.alphaHome {
@@ -519,17 +519,17 @@ func (s *ClientHome) Start() {
 					}
 				}
 				s.update()
-				VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
+				//VPrintf("++++  end of betaArrivesHome. state of Home= '%s'\n", s)
 
 			case <-s.alphaDepartsHome:
 				s.alphaHome = false
 				s.update()
-				VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
+				//VPrintf("----  home received alphaDepartsHome. state of Home= '%s'\n", s)
 
 			case <-s.betaDepartsHome:
 				s.betaHome = false
 				s.update()
-				VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
+				//VPrintf("----  home received betaDepartsHome. state of Home= '%s'\n", s)
 
 			case s.shouldAlphaGoNow <- s.shouldAlphaGoCached:
 
