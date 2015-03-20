@@ -14,6 +14,8 @@ import (
 // + if there are no bytes to send, then the client and the server should remain idle
 //   until the long-poll timeout (30 sec by default, can be smaller for testing).
 //
+// + out of order return problem: what if bytes come back in the wrong order?
+//
 func TestIdleLongPollerShouldNotBeChatty050(t *testing.T) {
 
 	cli, srv, rev, fwd, err := StartTestSystemWithCountingServer()
