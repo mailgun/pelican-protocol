@@ -2,79 +2,116 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
-func (r *LittlePoll) NoteTmRecv() {
-	r.mut.Lock()
-	defer r.mut.Unlock()
-	r.tmLastRecv = append(r.tmLastRecv, time.Now())
-}
-func (r *LittlePoll) NoteTmSent() {
-	r.mut.Lock()
-	defer r.mut.Unlock()
-	r.tmLastSend = append(r.tmLastSend, time.Now())
+type Log struct {
+	when time.Time
+	what []byte
 }
 
-func (r *Chaser) NoteTmRecv() {
-	r.mut.Lock()
-	defer r.mut.Unlock()
-	r.tmLastRecv = append(r.tmLastRecv, time.Now())
-}
-func (r *Chaser) NoteTmSent() {
-	r.mut.Lock()
-	defer r.mut.Unlock()
-	r.tmLastSend = append(r.tmLastSend, time.Now())
+func (a *Log) Copy() *Log {
+	cp := make([]byte, len(a.what))
+	copy(cp, a.what)
+	return &Log{
+		when: a.when,
+		what: cp,
+	}
 }
 
-func (r *Chaser) ShowTmHistory() {
-	r.mut.Lock()
-	defer r.mut.Unlock()
-	nr := len(r.tmLastRecv)
-	ns := len(r.tmLastSend)
-	min := nr
-	if ns < min {
-		min = ns
-	}
-	if min == 0 {
-		fmt.Printf("Chaser history: none.\n")
-	}
-
-	for i := 0; i < min; i++ {
-		fmt.Printf("Chaser history: elap: '%s'    Send '%v'   Recv '%v'  \n", r.tmLastRecv[i].Sub(r.tmLastSend[i]), r.tmLastSend[i], r.tmLastRecv[i])
-
-	}
-	for i := 0; i < min-1; i++ {
-		fmt.Printf("Chaser history: send-to-send elap: '%s'\n", r.tmLastSend[i+1].Sub(r.tmLastSend[i]))
-	}
-	for i := 0; i < min-1; i++ {
-		fmt.Printf("Chaser history: recv-to-recv elap: '%s'\n", r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
-	}
-
+type HistoryLog struct {
+	numAbs          int
+	numGen          int
+	generateHistory []*Log
+	absorbHistory   []*Log
+	name            string
+	mut             sync.Mutex
 }
 
-func (r *LittlePoll) ShowTmHistory() {
+func (r *HistoryLog) GetHistory() *HistoryLog {
+	return r.DeepCopy()
+}
+
+func NewHistoryLog(name string) *HistoryLog {
+	r := &HistoryLog{
+		generateHistory: make([]*Log, 0),
+		absorbHistory:   make([]*Log, 0),
+		name:            name,
+	}
+	return r
+}
+
+func (r *HistoryLog) DeepCopy() *HistoryLog {
 	r.mut.Lock()
 	defer r.mut.Unlock()
-	nr := len(r.tmLastRecv)
-	ns := len(r.tmLastSend)
-	min := nr
-	if ns < min {
-		min = ns
+
+	s := &HistoryLog{
+		generateHistory: make([]*Log, len(r.generateHistory)),
+		absorbHistory:   make([]*Log, len(r.absorbHistory)),
+		name:            r.name,
 	}
-	if min == 0 {
-		fmt.Printf("LittlePoll history: none.\n")
+	for _, v := range r.generateHistory {
+		s.generateHistory = append(s.generateHistory, v.Copy())
 	}
 
-	for i := 0; i < min; i++ {
-		fmt.Printf("LittlePoll history: elap: '%s'    Recv '%v'   Send '%v'  \n", r.tmLastSend[i].Sub(r.tmLastRecv[i]), r.tmLastRecv[i], r.tmLastSend[i])
-	}
+	return s
+}
 
-	for i := 0; i < min-1; i++ {
-		fmt.Printf("LittlePoll history: send-to-send elap: '%s'\n", r.tmLastSend[i+1].Sub(r.tmLastSend[i]))
-	}
-	for i := 0; i < min-1; i++ {
-		fmt.Printf("LittlePoll history: recv-to-recv elap: '%s'\n", r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
-	}
+func (s *HistoryLog) RecordGen(what []byte) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
 
+	cp := make([]byte, len(what))
+	copy(cp, what)
+	s.generateHistory = append(s.generateHistory, &Log{when: time.Now(), what: cp})
+	s.absorbHistory = append(s.absorbHistory, &Log{}) // make spacing apparent
+	s.numGen++
+}
+
+func (s *HistoryLog) RecordAbs(what []byte) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	cp := make([]byte, len(what))
+	copy(cp, what)
+	s.absorbHistory = append(s.absorbHistory, &Log{when: time.Now(), what: cp})
+	s.generateHistory = append(s.generateHistory, &Log{})
+	s.numAbs++
+}
+
+func (s *HistoryLog) ShowHistory() {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	fmt.Printf("%s history:\n", s.name)
+	for i := 0; i < len(s.absorbHistory); i++ {
+		if s.absorbHistory[i].when.IsZero() {
+
+		} else {
+			fmt.Printf("Abs @ %v: '%s'\n",
+				s.absorbHistory[i].when,
+				string(s.absorbHistory[i].what))
+		}
+
+		if s.generateHistory[i].when.IsZero() {
+
+		} else {
+			fmt.Printf("Gen @ %v:                  '%s'\n",
+				s.generateHistory[i].when,
+				string(s.generateHistory[i].what))
+		}
+	}
+}
+
+func (s *HistoryLog) CountAbsorbs() int {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	return s.numAbs
+}
+
+func (s *HistoryLog) CountGenerates() int {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	return s.numGen
 }

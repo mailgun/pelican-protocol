@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -22,6 +23,8 @@ type LittlePoll struct {
 
 	tmLastSend []time.Time
 	tmLastRecv []time.Time
+
+	name string
 }
 
 func NewLittlePoll(pollDur time.Duration, dn *Downstream, ab2lp chan []byte, lp2ab chan []byte) *LittlePoll {
@@ -35,6 +38,7 @@ func NewLittlePoll(pollDur time.Duration, dn *Downstream, ab2lp chan []byte, lp2
 		down:       dn,
 		tmLastSend: make([]time.Time, 0),
 		tmLastRecv: make([]time.Time, 0),
+		name:       "LittlePoll",
 	}
 
 	return s
@@ -236,4 +240,47 @@ func (s *LittlePoll) Start() error {
 	}()
 
 	return nil
+}
+
+// logging
+
+func (r *LittlePoll) NoteTmRecv() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	r.tmLastRecv = append(r.tmLastRecv, time.Now())
+}
+
+func (r *LittlePoll) NoteTmSent() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	r.tmLastSend = append(r.tmLastSend, time.Now())
+}
+
+func (r *LittlePoll) ShowTmHistory() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	nr := len(r.tmLastRecv)
+	ns := len(r.tmLastSend)
+	min := nr
+	if ns < min {
+		min = ns
+	}
+	if min == 0 {
+		fmt.Printf("%s history: none.\n", r.name)
+	}
+
+	for i := 0; i < min; i++ {
+		fmt.Printf("%s history: elap: '%s'    Recv '%v'   Send '%v'  \n",
+			r.name,
+			r.tmLastSend[i].Sub(r.tmLastRecv[i]),
+			r.tmLastRecv[i], r.tmLastSend[i])
+	}
+
+	for i := 0; i < min-1; i++ {
+		fmt.Printf("%s history: send-to-send elap: '%s'\n", r.name, r.tmLastSend[i+1].Sub(r.tmLastSend[i]))
+	}
+	for i := 0; i < min-1; i++ {
+		fmt.Printf("%s history: recv-to-recv elap: '%s'\n", r.name, r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
+	}
+
 }

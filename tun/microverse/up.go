@@ -14,63 +14,41 @@ type Upstream struct {
 	Absorb   chan []byte
 	Generate chan []byte
 
-	generateHistory []*Log
-	absorbHistory   []*Log
-}
+	hist *HistoryLog
 
-func (s *Upstream) recordGen(what []byte) {
-	cp := make([]byte, len(what))
-	copy(cp, what)
-	s.generateHistory = append(s.generateHistory, &Log{when: time.Now(), what: cp})
-	s.absorbHistory = append(s.absorbHistory, &Log{}) // make spacing apparent
-}
-
-func (s *Upstream) recordAbs(what []byte) {
-	cp := make([]byte, len(what))
-	copy(cp, what)
-	s.absorbHistory = append(s.absorbHistory, &Log{when: time.Now(), what: cp})
-	s.generateHistory = append(s.generateHistory, &Log{})
-}
-
-func (s *Upstream) showHistory() {
-	fmt.Printf("Upstream history:\n")
-	for i := 0; i < len(s.absorbHistory); i++ {
-		if s.absorbHistory[i].when.IsZero() {
-
-		} else {
-			fmt.Printf("Abs @ %v: '%s'\n",
-				s.absorbHistory[i].when,
-				string(s.absorbHistory[i].what))
-		}
-
-		if s.generateHistory[i].when.IsZero() {
-
-		} else {
-			fmt.Printf("Gen @ %v:                  '%s'\n",
-				s.generateHistory[i].when,
-				string(s.generateHistory[i].what))
-		}
-	}
+	sendEvery time.Duration
 }
 
 func NewUpstream() *Upstream {
 	s := &Upstream{
-		reqStop:         make(chan bool),
-		Done:            make(chan bool),
-		Absorb:          make(chan []byte),
-		Generate:        make(chan []byte),
-		generateHistory: make([]*Log, 0),
-		absorbHistory:   make([]*Log, 0),
+		reqStop:  make(chan bool),
+		Done:     make(chan bool),
+		Absorb:   make(chan []byte),
+		Generate: make(chan []byte),
+		hist:     NewHistoryLog("upstream"),
 	}
 	return s
 }
 
+func (s *Upstream) SendEvery(dur time.Duration) {
+	s.sendEvery = dur
+	po("SendEvery called(): s.sendEvery = %v", dur)
+}
+
 func (s *Upstream) Start() {
-	genDelay := 5 * time.Second
+	genTimer := time.NewTimer(0)
+	if s.sendEvery == 0 {
+		po("******* Upstream.Start() has no sendEvery set! I'll never send anything.")
+		panic("******* Upstream.Start() has no sendEvery set! I'll never send anything.")
+	} else {
+		genTimer.Reset(s.sendEvery)
+	}
+	//genDelay := 5 * time.Second
 
 	nextGen := 0
 	ng := []byte(fmt.Sprintf("%d", nextGen))
 	seen := []byte{}
+
 	go func() {
 		for {
 			select {
@@ -78,13 +56,14 @@ func (s *Upstream) Start() {
 				close(s.Done)
 				return
 			case by := <-s.Absorb:
-				s.recordAbs(by)
+				s.hist.RecordAbs(by)
 				po("upstream absorb sees '%s'", string(by))
 				seen = append(seen, by...)
-			case <-time.After(genDelay):
+			case <-genTimer.C:
+				genTimer.Reset(s.sendEvery)
 				select {
 				case s.Generate <- ng:
-					s.recordGen(ng)
+					s.hist.RecordGen(ng)
 				case <-s.reqStop:
 					close(s.Done)
 					return
