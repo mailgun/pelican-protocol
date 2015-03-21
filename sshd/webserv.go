@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/rcrowley/go-tigertonic"
+	"github.com/glycerine/go-tigertonic"
 
 	_ "expvar"       // Imported for side-effect of handling /debug/vars.
 	"net/http/pprof" // Imported for side-effect of handling /debug/pprof.
