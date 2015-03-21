@@ -371,6 +371,8 @@ func (s *Chaser) startAlpha() {
 				// actual bytes to send!
 				s.ResetActiveTimer()
 			}
+			// else must send out anyway, since we may be just long-polling for
+			// keep-alive and server sending purposes.
 
 			// send request to server
 			s.home.alphaDepartsHome <- true
@@ -392,14 +394,14 @@ func (s *Chaser) startAlpha() {
 
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
-			}
 
-			// deliver any response data (body) to our client
-			select {
-			case s.repliesHere <- replyBytes:
-			case <-s.reqStop:
-				po("%p Alpha got s.reqStop", s)
-				return
+				// deliver any response data (body) to our client
+				select {
+				case s.repliesHere <- replyBytes:
+				case <-s.reqStop:
+					po("%p Alpha got s.reqStop", s)
+					return
+				}
 			}
 		}
 	}()
@@ -478,16 +480,15 @@ func (s *Chaser) startBeta() {
 
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
-			}
 
-			// deliver any response data (body) to our client
-			select {
-			case s.repliesHere <- replyBytes:
-			case <-s.reqStop:
-				po("%p Beta got s.reqStop", s)
-				return
+				// deliver any response data (body) to our client
+				select {
+				case s.repliesHere <- replyBytes:
+				case <-s.reqStop:
+					po("%p Beta got s.reqStop", s)
+					return
+				}
 			}
-
 		}
 	}()
 }
