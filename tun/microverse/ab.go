@@ -257,15 +257,16 @@ func (s *Chaser) startAlpha() {
 
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
-			}
 
-			// deliver any response data (body) to our client
-			select {
-			case s.repliesHere <- replyBytes:
-				po("*p Alpha sent to repliesHere: '%s'", string(replyBytes))
-			case <-s.reqStop:
-				//po("%p Alpha got s.reqStop", s)
-				return
+				// deliver any response data (body) to our client, but only
+				// bother if len(replyBytes) > 0, as checked above.
+				select {
+				case s.repliesHere <- replyBytes:
+					po("*p Alpha sent to repliesHere: '%s'", string(replyBytes))
+				case <-s.reqStop:
+					//po("%p Alpha got s.reqStop", s)
+					return
+				}
 			}
 		}
 	}()
@@ -344,16 +345,15 @@ func (s *Chaser) startBeta() {
 
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
-			}
 
-			// deliver any response data (body) to our client
-			select {
-			case s.repliesHere <- replyBytes:
-			case <-s.reqStop:
-				//po("%p Beta got s.reqStop", s)
-				return
+				// deliver any response data (body) to our client
+				select {
+				case s.repliesHere <- replyBytes:
+				case <-s.reqStop:
+					//po("%p Beta got s.reqStop", s)
+					return
+				}
 			}
-
 		}
 	}()
 }
