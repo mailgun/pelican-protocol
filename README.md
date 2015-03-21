@@ -1,5 +1,5 @@
 # pelican-protocol: Do-It-Yourself-Trust
-![diagram of pelican protocol in action](https://github.com/mailgun/pelican-protocol/blob/master/pelican.png "pelican-protocol-diagram")
+![diagram of pelican protocol in action](https://github.com/mailgun/pelican-protocol/blob/master/pelican2.png "pelican-protocol-diagram")
 
 Status
 =====
