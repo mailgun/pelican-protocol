@@ -192,7 +192,7 @@ func (s *LongPoller) Start() error {
 
 			po("%p '%s' longpoller sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", s, skey, countForUpstream, waiters.Len())
 
-			if len(oldest.respdup.Bytes()) > 0 {
+			if countForUpstream > 0 {
 				// last thing before the reply: append reply serial number, to allow
 				// correct ordering on the client end. But skip replySerialNumber
 				// addition if this is an empty packet, because there will be lots of those.
