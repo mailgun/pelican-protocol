@@ -318,9 +318,10 @@ func (s *LongPoller) Start() error {
 				// add any data from the next 10 msec to return packet to client
 				// hence if the server replies quickly, we can reply quickly
 				// to the client too.
+				startFastWaitTm := time.Now()
 				select {
 				case b500 := <-s.rw.RecvFromDownCh():
-					po("%p '%s' longpoller  <-s.rw.RecvFromDownCh() got b500='%s'\n", s, skey, string(b500))
+					po("%p '%s' longpoller  <-s.rw.RecvFromDownCh() got b500='%s' during fast-reply-wait (after %v)\n", s, skey, string(b500), time.Since(startFastWaitTm))
 
 					oldest := waiters.PeekRight()
 					_, err := oldest.resp.Write(b500)

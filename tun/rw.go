@@ -228,7 +228,14 @@ func (s *NetConnReader) finish() {
 	s.dnReadToUpWrite = nil
 
 	if s.reportDone && s.notifyDoneCh != nil {
-		s.notifyDoneCh <- s
+		tryDur := 500 * time.Millisecond
+		select {
+		case s.notifyDoneCh <- s:
+		case <-time.After(tryDur):
+			// timeout and shutdown anyway after a reasonable wait
+			po("%p '%s' warning: deadlock avoided: notfication on s.notiyDoneCh failed after %v",
+				s, s.name, tryDur)
+		}
 	}
 
 	po("%p '%s' rw reader shut down complete, last error: '%v'\n", s, s.name, s.LastErr)
@@ -422,7 +429,14 @@ func (s *NetConnWriter) finish() {
 	s.upReadToDnWrite = nil
 
 	if s.reportDone && s.notifyDoneCh != nil {
-		s.notifyDoneCh <- s
+		tryDur := 500 * time.Millisecond
+		select {
+		case s.notifyDoneCh <- s:
+		case <-time.After(tryDur):
+			// timeout and shutdown anyway after a reasonable wait
+			po("%p '%s' warning: deadlock avoided: notfication on s.notiyDoneCh failed after %v",
+				s, s.name, tryDur)
+		}
 	}
 
 	po("%p '%s' rw writer shut down complete, last error: '%v'\n", s, s.name, s.LastErr)

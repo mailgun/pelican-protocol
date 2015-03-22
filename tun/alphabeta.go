@@ -171,8 +171,8 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 
 	SetChaserConfigDefaults(&cfg)
 
-	rwReaderDone := make(chan *NetConnReader)
-	rwWriterDone := make(chan *NetConnWriter)
+	rwReaderDone := make(chan *NetConnReader, 256) // big-buffered to avoid shutdown deadlock issues
+	rwWriterDone := make(chan *NetConnWriter, 256) // ditto
 
 	rw := NewClientRW("ClientRW/Chaser", conn, cfg.BufSize, rwReaderDone, rwWriterDone)
 
