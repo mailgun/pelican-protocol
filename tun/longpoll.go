@@ -62,7 +62,8 @@ type LongPoller struct {
 	CloseKeyChan chan string
 	lastUseTm    time.Time
 
-	nextReplySerial int64
+	nextReplySerial             int64
+	lastRequestSerialNumberSeen int64
 }
 
 // Make a new LongPoller as a part of the server (ReverseProxy is the server;
@@ -269,8 +270,16 @@ func (s *LongPoller) Start() error {
 				if len(pack.body) > 0 {
 					s.lastUseTm = time.Now()
 				}
+
 				po("%p '%s' longPoller got client packet! recvCount now: %d", s, skey, s.recvCount)
 
+				if pack.requestSerial >= 0 {
+					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
+						panic(fmt.Sprintf("pack.requestSerial =%d but s.lastRequestSerialNumberSeen = %d which is not one less", pack.requestSerial, s.lastRequestSerialNumberSeen))
+					} else {
+						s.lastRequestSerialNumberSeen++
+					}
+				}
 				// reset timer. only hold this packet open for at most 'dur' time.
 				// since we will be replying to oldestReqPack (if any) immediately,
 				// we can reset the timer to reflect pack's arrival.

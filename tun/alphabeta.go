@@ -190,17 +190,18 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		incoming:    rw.RecvCh(), // requests to the remote http
 		repliesHere: rw.SendCh(), // replies from remote http are passed upstream here.
 
-		alphaIsHome:         true,
-		betaIsHome:          true,
-		closedChan:          make(chan bool),
-		home:                NewClientHome(),
-		dest:                dest,
-		key:                 key,
-		notifyDone:          notifyDone,
-		cfg:                 cfg,
-		httpClient:          NewHttpClientWithTimeout(cfg.TransportTimeout),
-		shutdownInactiveDur: cfg.ShutdownInactiveDur,
-		inactiveTimer:       time.NewTimer(cfg.ShutdownInactiveDur),
+		alphaIsHome:          true,
+		betaIsHome:           true,
+		closedChan:           make(chan bool),
+		home:                 NewClientHome(),
+		dest:                 dest,
+		key:                  key,
+		notifyDone:           notifyDone,
+		cfg:                  cfg,
+		httpClient:           NewHttpClientWithTimeout(cfg.TransportTimeout),
+		shutdownInactiveDur:  cfg.ShutdownInactiveDur,
+		inactiveTimer:        time.NewTimer(cfg.ShutdownInactiveDur),
+		nextSendSerialNumber: 1,
 	}
 
 	po("\n\n Chaser %p gets NewRW() = %p '%s' with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.name, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
@@ -806,6 +807,8 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	if recvSerial >= 0 {
 		if recvSerial != s.lastRecvSerialNumberSeen+1 {
 			panic(fmt.Sprintf("recvSerial =%d but s.lastRecvSerialNumberSeen = %d which is not one less", recvSerial, s.lastRecvSerialNumberSeen))
+		} else {
+			s.lastRecvSerialNumberSeen++
 		}
 	}
 
