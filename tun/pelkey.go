@@ -2,11 +2,14 @@ package pelicantun
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"strings"
 )
 
 const KeyLen = 149
+const SerialLen = 8
+const HeaderLen = KeyLen + SerialLen
 
 const randByteCount = 32
 
@@ -84,4 +87,25 @@ func IsLegitPelicanKey(alpha_signed_key []byte) bool {
 	//fmt.Printf("after un-alpha, expected hmac = '%x'\n", hmac)
 
 	return CheckSha256HMAC(signed_key[:randByteCount], hmac, signed_key[randByteCount:2*randByteCount])
+}
+
+// the sequence number is the request sequence going from client -> server,
+func ParseRequestHeader(header []byte) (key []byte, ser int64) {
+	key = header[:KeyLen]
+	serBy := header[KeyLen : KeyLen+SerialLen]
+	ser = int64(binary.LittleEndian.Uint64(serBy))
+	return
+}
+
+func SerialToBytes(serialNum int64) []byte {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(serialNum))
+	return b
+}
+
+func BytesToSerial(p []byte) int64 {
+	if len(p) != SerialLen {
+		panic(fmt.Sprintf("p must be of length SerialLen == %d, but was %d", SerialLen, len(p)))
+	}
+	return int64(binary.LittleEndian.Uint64(p))
 }

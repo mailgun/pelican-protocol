@@ -61,6 +61,8 @@ type LongPoller struct {
 	mut          sync.Mutex
 	CloseKeyChan chan string
 	lastUseTm    time.Time
+
+	nextReplySerial int64
 }
 
 // Make a new LongPoller as a part of the server (ReverseProxy is the server;
@@ -87,6 +89,7 @@ func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
 		Dest:              dest,
 		CloseKeyChan:      make(chan string),
 		pollDur:           pollDur,
+		nextReplySerial:   1,
 	}
 
 	return s
@@ -113,6 +116,14 @@ func (s *LongPoller) RequestStop() bool {
 		close(s.reqStop)
 		return true
 	}
+}
+
+func (s *LongPoller) getReplySerial() int64 {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	v := s.nextReplySerial
+	s.nextReplySerial++
+	return v
 }
 
 func (s *LongPoller) finish() {
@@ -181,7 +192,34 @@ func (s *LongPoller) Start() error {
 
 			po("%p '%s' longpoller sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", s, skey, countForUpstream, waiters.Len())
 
-			close(oldest.done) // send!
+			if len(oldest.respdup.Bytes()) > 0 {
+				// last thing before the reply: append reply serial number, to allow
+				// correct ordering on the client end. But skip replySerialNumber
+				// addition if this is an empty packet, because there will be lots of those.
+				//
+				rs := s.getReplySerial()
+				rser := SerialToBytes(rs)
+				nw, err := oldest.resp.Write(rser)
+				if err != nil {
+					panic(err)
+				}
+				if nw != len(rser) {
+					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
+				}
+				nw, err = oldest.respdup.Write(rser)
+				if err != nil {
+					panic(err)
+				}
+				if nw != len(rser) {
+					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
+				}
+				oldest.replySerial = rs
+
+			} else {
+				oldest.replySerial = -1
+			}
+
+			close(oldest.done) // send reply!
 			countForUpstream = 0
 
 			if waiters.Empty() {
@@ -213,12 +251,12 @@ func (s *LongPoller) Start() error {
 				}
 				po("%p '%s' LongPoller got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'\n", s, skey, string(b500))
 
-				countForUpstream += int64(len(b500))
 				oldestReqPack := waiters.PeekRight()
 				_, err := oldestReqPack.resp.Write(b500)
 				if err != nil {
 					panic(err)
 				}
+				countForUpstream += int64(len(b500))
 
 				_, err = oldestReqPack.respdup.Write(b500)
 				if err != nil {
@@ -285,11 +323,11 @@ func (s *LongPoller) Start() error {
 					po("%p '%s' longpoller  <-s.rw.RecvFromDownCh() got b500='%s'\n", s, skey, string(b500))
 
 					oldest := waiters.PeekRight()
-					countForUpstream += int64(len(b500))
 					_, err := oldest.resp.Write(b500)
 					if err != nil {
 						panic(err)
 					}
+					countForUpstream += int64(len(b500))
 
 					_, err = oldest.respdup.Write(b500)
 					if err != nil {

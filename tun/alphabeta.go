@@ -2,6 +2,7 @@ package pelicantun
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -98,6 +99,9 @@ type Chaser struct {
 	inactiveTimer       *time.Timer
 	lastActiveTm        time.Time
 	mutTimer            sync.Mutex
+
+	nextSendSerialNumber int64
+	lastRecvSerialNumber int64
 }
 
 type ChaserConfig struct {
@@ -382,12 +386,12 @@ func (s *Chaser) startAlpha() {
 			// ================================
 
 			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
-			replyBytes, err := s.DoRequestResponse(work, "")
+			replyBytes, recvSerial, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("%p alpha DoRequestResponse done work:'%s' -> '%s'.\n", s, string(work), string(replyBytes))
+			po("%p alpha DoRequestResponse done work:'%s' -> '%s'. with recvSerial: %d\n", s, string(work), string(replyBytes), recvSerial)
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
@@ -468,12 +472,12 @@ func (s *Chaser) startBeta() {
 			// request-response cycle here
 			// ================================
 
-			replyBytes, err := s.DoRequestResponse(work, "")
+			replyBytes, recvSerial, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p beta aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("%p beta DoRequestResponse done.\n", s)
+			po("%p beta DoRequestResponse done; recvSerial = %d.\n", s, recvSerial)
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
@@ -728,6 +732,14 @@ func (s *ClientHome) update() {
 
 }
 
+func (s *Chaser) getNextSerNum() int64 {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	v := s.nextSendSerialNumber
+	s.nextSendSerialNumber++
+	return v
+}
+
 // issue a post to the urlPath (omit the leading slash! deault to ""),
 // submitting 'work', returning 'back' and any error.
 // the urlPath should normally be "", but can be "closekey" to tell
@@ -737,12 +749,24 @@ func (s *ClientHome) update() {
 // because other keys/clients can re-use it for other/on-going work.
 // Indeed it might be in use right now for another key's packets.
 //
-func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, err error) {
+func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
 
 	//po("debug: DoRequestResponse called with dest: '%#v', key: '%s', and work: '%s'", s.dest, s.key, string(work))
 	// assemble key + work into request
 	req := bytes.NewBuffer([]byte(s.key))
-	req.Write(work) // add work after key
+
+	serial := s.getNextSerNum()
+	var b [8]byte
+	seq := b[:]
+	binary.LittleEndian.PutUint64(seq, uint64(serial))
+	po("debug: seq = '%x'", seq)
+	// debug:
+	debugkey, debugser := ParseRequestHeader(req.Bytes())
+	po("debug: debugkey = '%s', debugser = %x", debugkey, debugser)
+
+	req.Write(seq) // add seqnum after key
+
+	req.Write(work) // add work after key + seqnum
 
 	po("in DoRequestResponse(url='%s') just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v\n", urlPath, string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout)
 
@@ -763,12 +787,21 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, er
 
 	if err != nil && err != io.EOF {
 		log.Println(err.Error())
-		return []byte{}, err
+		return []byte{}, -1, err
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	panicOn(err)
+
+	recvSerial = -1 // default for empty bytes in body
+	if len(body) >= SerialLen {
+		// if there are any bytes, then the replySerial number will be the last 8
+		serStart := len(body) - SerialLen
+		recvSerial = BytesToSerial(body[serStart:])
+		body = body[:serStart]
+	}
+
 	po("%p chaser '%s' / '%s', resp.Body = '%s'\n", s, s.key[:5], s.rw.name, string(body))
 
-	return body, err
+	return body, recvSerial, err
 }

@@ -81,7 +81,8 @@ Accept-Encoding: gzip
 		if err != nil {
 			panic(err)
 		}
-		reply, err := rev.injectPacket(mockRw, mockReq, body, tunnel.key)
+
+		reply, err := rev.injectPacket(mockRw, mockReq, body, tunnel.key, 1)
 		cv.So(err, cv.ShouldEqual, nil)
 		po("reply = '%s'", string(reply))
 		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)

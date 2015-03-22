@@ -174,7 +174,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		copy(key, body)
 		legitPelicanKey := IsLegitPelicanKey(key)
 
-		if len(body) < KeyLen || !legitPelicanKey {
+		if len(body) < HeaderLen || !legitPelicanKey {
 			// pass through here to the downstream webserver directly, by-passing pelican protocol stuff
 
 			// here we could act simply as a pass through proxy
@@ -186,8 +186,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 				http.StatusBadRequest)
 			return
 		}
-
-		s.injectPacket(c, r, body[KeyLen:], string(key))
+		s.injectPacket(c, r, body[HeaderLen:], string(key), BytesToSerial(body[KeyLen:KeyLen+SerialLen]))
 	}
 
 	// createHandler
@@ -284,6 +283,9 @@ type tunnelPacket struct {
 	body    []byte
 	key     string // separate from body
 	done    chan bool
+
+	requestSerial int64 // order the sends with content by serial number
+	replySerial   int64 // order the replies by serial number. Empty replies get serial number -1.
 }
 
 // print out shortcut
@@ -293,14 +295,15 @@ func po(format string, a ...interface{}) {
 	}
 }
 
-func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string) ([]byte, error) {
+func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string, reqSerial int64) ([]byte, error) {
 	pack := &tunnelPacket{
-		resp:    c,
-		respdup: new(bytes.Buffer),
-		request: r,
-		body:    body, // body no longer includes key of KeyLen in prefix
-		done:    make(chan bool),
-		key:     key,
+		resp:          c,
+		respdup:       new(bytes.Buffer),
+		request:       r,
+		body:          body, // body no longer includes key of KeyLen in prefix
+		done:          make(chan bool),
+		key:           key,
+		requestSerial: reqSerial,
 	}
 
 	select {
