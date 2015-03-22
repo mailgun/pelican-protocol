@@ -43,13 +43,16 @@ type Chaser struct {
 	mutTimer            sync.Mutex
 
 	lp2ab chan []byte
-	ab2lp chan []byte
+	ab2lp chan *tunnelPacket
 
 	tmLastRecv []time.Time
 	tmLastSend []time.Time
 
 	hist *HistoryLog
 	name string
+
+	nextSendSerialNumber     int64
+	lastRecvSerialNumberSeen int64
 }
 
 type ChaserConfig struct {
@@ -88,7 +91,7 @@ func NewChaser(
 	cfg ChaserConfig,
 	incoming chan []byte,
 	repliesHere chan []byte,
-	ab2lp chan []byte,
+	ab2lp chan *tunnelPacket,
 	lp2ab chan []byte) *Chaser {
 
 	SetChaserConfigDefaults(&cfg)
@@ -115,8 +118,9 @@ func NewChaser(
 		tmLastSend:          make([]time.Time, 0),
 		tmLastRecv:          make([]time.Time, 0),
 
-		hist: NewHistoryLog("Chaser"),
-		name: "Chaser",
+		hist:                 NewHistoryLog("Chaser"),
+		name:                 "Chaser",
+		nextSendSerialNumber: 1,
 	}
 
 	// always closed
@@ -245,12 +249,12 @@ func (s *Chaser) startAlpha() {
 			// ================================
 
 			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
-			replyBytes, err := s.DoRequestResponse(work, "")
+			replyBytes, recvSerial, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("%p alpha DoRequestResponse done work:'%s' -> '%s'.\n", s, string(work), string(replyBytes))
+			po("%p alpha DoRequestResponse done work:'%s' -> '%s'. with recvSerail: %d\n", s, string(work), string(replyBytes), recvSerial)
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
@@ -333,12 +337,12 @@ func (s *Chaser) startBeta() {
 			// request-response cycle here
 			// ================================
 
-			replyBytes, err := s.DoRequestResponse(work, "")
+			replyBytes, recvSerial, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p beta aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("%p beta DoRequestResponse done.\n", s)
+			po("%p beta DoRequestResponse done; recvSerial = %d.\n", s, recvSerial)
 
 			// if Alpha is here, tell him to head out.
 			s.home.betaArrivesHome <- true
@@ -635,10 +639,13 @@ func (home *ClientHome) LocalSendLatencyHistory() []int64 {
 	return home.latencyHistory
 }
 
-func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, err error) {
+func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
 
 	select {
-	case s.ab2lp <- work:
+	case s.ab2lp <- &tunnelPacket{
+		requestSerial: s.getNextSendSerNum(),
+		reqBody:       work,
+	}:
 		s.NoteTmSent()
 
 	case <-s.reqStop:
@@ -712,4 +719,12 @@ func (r *Chaser) ShowTmHistory() {
 		fmt.Printf("%s history: recv-to-recv elap: '%s'\n", r.name, r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
 	}
 
+}
+
+func (s *Chaser) getNextSendSerNum() int64 {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	v := s.nextSendSerialNumber
+	s.nextSendSerialNumber++
+	return v
 }

@@ -2,16 +2,17 @@ package main
 
 import (
 	"fmt"
-	cv "github.com/glycerine/goconvey/convey"
 	"testing"
 	"time"
+
+	cv "github.com/glycerine/goconvey/convey"
 )
 
 func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 
 	dn := NewBoundary("downstream")
 
-	ab2lp := make(chan []byte)
+	ab2lp := make(chan *tunnelPacket)
 	lp2ab := make(chan []byte)
 
 	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
@@ -74,7 +75,7 @@ func TestMicroverseShutdownCleanly044(t *testing.T) {
 
 		dn := NewBoundary("downstream")
 
-		ab2lp := make(chan []byte)
+		ab2lp := make(chan *tunnelPacket)
 		lp2ab := make(chan []byte)
 
 		lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
@@ -109,7 +110,7 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 
 	dn := NewBoundary("downstream")
 
-	ab2lp := make(chan []byte)
+	ab2lp := make(chan *tunnelPacket)
 	lp2ab := make(chan []byte)
 
 	longPollDur := 2 * time.Second

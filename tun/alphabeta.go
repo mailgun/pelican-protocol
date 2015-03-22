@@ -2,7 +2,6 @@ package pelicantun
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -757,15 +756,10 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	req := bytes.NewBuffer([]byte(s.key))
 
 	serial := s.getNextSendSerNum()
-	var b [8]byte
-	seq := b[:]
-	binary.LittleEndian.PutUint64(seq, uint64(serial))
-	po("debug: seq = '%x'", seq)
-	// debug:
-	debugkey, debugser := ParseRequestHeader(req.Bytes())
-	po("debug: debugkey = '%s', debugser = %x", debugkey, debugser)
+	serBy := SerialToBytes(serial)
+	po("debug: serial = %d", serial)
 
-	req.Write(seq) // add seqnum after key
+	req.Write(serBy) // add seqnum after key
 
 	req.Write(work) // add work after key + seqnum
 

@@ -280,8 +280,8 @@ type tunnelPacket struct {
 	respdup *bytes.Buffer // duplicate resp here, to enable testing
 
 	request *http.Request
-	body    []byte
-	key     string // separate from body
+	reqBody []byte
+	key     string // separate from reqBody
 	done    chan bool
 
 	requestSerial int64 // order the sends with content by serial number
@@ -300,7 +300,7 @@ func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body
 		resp:          c,
 		respdup:       new(bytes.Buffer),
 		request:       r,
-		body:          body, // body no longer includes key of KeyLen in prefix
+		reqBody:       body, // body no longer includes key of KeyLen in prefix
 		done:          make(chan bool),
 		key:           key,
 		requestSerial: reqSerial,

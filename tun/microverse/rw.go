@@ -37,14 +37,14 @@ type ServerRW struct {
 	upReadToDnWrite chan []byte // can only receive []byte from upstream
 	dnReadToUpWrite chan []byte // can only send []byte to upstream
 	name            string      // helpful in reading debug logs
-	parent          *LongPoller
+	parent          *LittlePoll
 }
 
 // make a new ServerRW, passing bufsz to NewNetConnReader(). If the notifyWriterDone
 // and/or notifyReaderDone channels are not nil, then they will
 // receive a pointer to the NetConnReader (NetConnWriter) at Stop() time.
 //
-func NewServerRW(name string, netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter, parent *LongPoller) *ServerRW {
+func NewServerRW(name string, netconn net.Conn, bufsz int, notifyReaderDone chan *NetConnReader, notifyWriterDone chan *NetConnWriter, parent *LittlePoll) *ServerRW {
 
 	// buffered channels here are important: we want
 	// exactly buffered channel semantics: don't block
@@ -273,7 +273,7 @@ func (s *NetConnReader) Start() {
 				continue
 			}
 			if s.parent != nil && s.parent.parent != nil {
-				po("%p '%s' NetConnReader got buf: '%s', of len n64=%d  parent.LongPoller='%s'\n", s, s.name, string(buf[:n64]), n64, string(s.parent.parent.key[:5]))
+				po("%p '%s' NetConnReader got buf: '%s', of len n64=%d  parent.LittlePoll='%s'\n", s, s.name, string(buf[:n64]), n64, string(s.parent.parent.key[:5]))
 			} else {
 				po("%p '%s' NetConnReader got buf: '%s', of len n64=%d  parent=nil\n", s, s.name, string(buf[:n64]), n64)
 			}

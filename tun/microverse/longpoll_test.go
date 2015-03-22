@@ -1,14 +1,6 @@
 package main
 
-import (
-	"bytes"
-	"net/http"
-	"testing"
-	"time"
-
-	cv "github.com/glycerine/goconvey/convey"
-)
-
+/*
 func TestLongPollerWorksStandAlone041(t *testing.T) {
 
 	cv.Convey("Given a LongPoller stand alone, it should pass bytes to the downstream server, and return replies from downstream to upstream", t, func() {
@@ -59,3 +51,4 @@ func TestLongPollerWorksStandAlone041(t *testing.T) {
 		cv.So(string(pack2.respdup.Bytes()), cv.ShouldResemble, msg+"1")
 	})
 }
+*/

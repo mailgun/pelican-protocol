@@ -267,7 +267,7 @@ func (s *LongPoller) Start() error {
 
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
-				if len(pack.body) > 0 {
+				if len(pack.reqBody) > 0 {
 					s.lastUseTm = time.Now()
 				}
 
@@ -285,7 +285,7 @@ func (s *LongPoller) Start() error {
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
 
-				po("%p '%s' LongPoller, just received ClientPacket with pack.body = '%s'\n", s, skey, string(pack.body))
+				po("%p '%s' LongPoller, just received ClientPacket with pack.reqBody = '%s'\n", s, skey, string(pack.reqBody))
 
 				// have to both send and receive
 
@@ -293,21 +293,21 @@ func (s *LongPoller) Start() error {
 
 				po("%p '%s' just before s.rw.SendToDownCh()", s, skey)
 
-				if len(pack.body) > 0 {
+				if len(pack.reqBody) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 					select {
 					// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
 					// in fact we do want the back pressure to keep us from
 					// writing too much too fast.
-					case s.rw.SendToDownCh() <- pack.body:
+					case s.rw.SendToDownCh() <- pack.reqBody:
 						po("%p '%s' sent data on s.rw.SendToDownCh()", s, skey)
 					case <-s.reqStop:
 						po("%p '%s' got reqStop, *not* returning", s, skey)
 						// avoid deadlock on shutdown, but do
 						// finish processing this packet, don't return yet
 					}
-				} // end if len(pack.body) > 0
+				} // end if len(pack.reqBody) > 0
 
 				po("%p '%s' just after s.rw.SendToDownCh()", s, skey)
 

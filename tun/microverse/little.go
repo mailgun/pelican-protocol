@@ -16,7 +16,7 @@ type LittlePoll struct {
 
 	down *Boundary
 
-	ab2lp chan []byte
+	ab2lp chan *tunnelPacket
 	lp2ab chan []byte
 
 	recvCount int
@@ -25,9 +25,11 @@ type LittlePoll struct {
 	tmLastRecv []time.Time
 
 	name string
+
+	key string // keep rw happy
 }
 
-func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan []byte, lp2ab chan []byte) *LittlePoll {
+func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan []byte) *LittlePoll {
 
 	s := &LittlePoll{
 		reqStop:    make(chan bool),
@@ -99,7 +101,7 @@ func (s *LittlePoll) Start() error {
 
 		longPollTimeUp := time.NewTimer(s.pollDur)
 
-		var pack []byte
+		var pack *tunnelPacket
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LittlePoll, we read from the server
@@ -179,20 +181,20 @@ func (s *LittlePoll) Start() error {
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
 
-				po("%p  LittlePoll, just received ClientPacket with pack.body = '%s'\n", s, string(pack))
+				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.reqBody))
 
 				// have to both send and receive
 
 				po("%p  just before s.rw.SendToDownCh()", s)
 
-				if len(pack) > 0 {
+				if len(pack.reqBody) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 					select {
 					// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
 					// in fact we do want the back pressure to keep us from
 					// writing too much too fast.
-					case s.down.Absorb <- pack:
+					case s.down.Absorb <- pack.reqBody:
 						po("%p  sent data on s.downAbsorb <- pack", s)
 						//po("%p  sent data on s.rw.SendToDownCh()", s)
 					case <-s.reqStop:
