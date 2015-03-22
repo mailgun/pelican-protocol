@@ -168,7 +168,7 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 		// beta should have not round trips.
 		cv.So(len(betaRTT), cv.ShouldEqual, 2)
 
-		tol := time.Duration(20 * time.Millisecond).Nanoseconds()
+		tol := time.Duration(100 * time.Millisecond).Nanoseconds()
 		for _, v := range alphaRTT {
 			cv.So(int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()), cv.ShouldBeLessThan, tol)
 		}

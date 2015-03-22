@@ -706,10 +706,11 @@ func (r *Chaser) ShowTmHistory() {
 	}
 
 	for i := 0; i < min; i++ {
-		fmt.Printf("%s history: elap: '%s'    Recv '%v'   Send '%v'  \n",
+		fmt.Printf("%s history: elap: '%s'    Send '%v'   Recv '%v'    \n",
 			r.name,
 			r.tmLastSend[i].Sub(r.tmLastRecv[i]),
-			r.tmLastRecv[i], r.tmLastSend[i])
+			r.tmLastSend[i],
+			r.tmLastRecv[i])
 	}
 
 	for i := 0; i < min-1; i++ {
