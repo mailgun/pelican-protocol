@@ -100,8 +100,8 @@ type Chaser struct {
 	lastActiveTm        time.Time
 	mutTimer            sync.Mutex
 
-	nextSendSerialNumber int64
-	lastRecvSerialNumber int64
+	nextSendSerialNumber     int64
+	lastRecvSerialNumberSeen int64
 }
 
 type ChaserConfig struct {
@@ -171,8 +171,8 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 
 	SetChaserConfigDefaults(&cfg)
 
-	rwReaderDone := make(chan *NetConnReader, 256) // big-buffered to avoid shutdown deadlock issues
-	rwWriterDone := make(chan *NetConnWriter, 256) // ditto
+	rwReaderDone := make(chan *NetConnReader)
+	rwWriterDone := make(chan *NetConnWriter)
 
 	rw := NewClientRW("ClientRW/Chaser", conn, cfg.BufSize, rwReaderDone, rwWriterDone)
 
@@ -732,7 +732,7 @@ func (s *ClientHome) update() {
 
 }
 
-func (s *Chaser) getNextSerNum() int64 {
+func (s *Chaser) getNextSendSerNum() int64 {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 	v := s.nextSendSerialNumber
@@ -755,7 +755,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	// assemble key + work into request
 	req := bytes.NewBuffer([]byte(s.key))
 
-	serial := s.getNextSerNum()
+	serial := s.getNextSendSerNum()
 	var b [8]byte
 	seq := b[:]
 	binary.LittleEndian.PutUint64(seq, uint64(serial))
@@ -801,7 +801,13 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		body = body[:serStart]
 	}
 
-	po("%p chaser '%s' / '%s', resp.Body = '%s'\n", s, s.key[:5], s.rw.name, string(body))
+	po("%p chaser '%s' / '%s', resp.Body = '%s'. With recvSerial = %d\n", s, s.key[:5], s.rw.name, string(body), recvSerial)
+
+	if recvSerial >= 0 {
+		if recvSerial != s.lastRecvSerialNumberSeen+1 {
+			panic(fmt.Sprintf("recvSerial =%d but s.lastRecvSerialNumberSeen = %d which is not one less", recvSerial, s.lastRecvSerialNumberSeen))
+		}
+	}
 
 	return body, recvSerial, err
 }
