@@ -147,13 +147,13 @@ func TestTwoRequestMisorderingsAreCorrected047(t *testing.T) {
 
 		pack3 := SendHelper(lp.ab2lp, 3)
 		pack2 := SendHelper(lp.ab2lp, 2)
-		pack1 := SendHelper(lp.ab2lp, 1) // hung here
+		pack1 := SendHelper(lp.ab2lp, 1)
 
 		po("pack1 got back: '%s'", pack1.respdup.Bytes())
 		po("pack2 got back: '%s'", pack2.respdup.Bytes())
 		po("pack3 got back: '%s'", pack3.respdup.Bytes())
 
-		time.Sleep(4 * time.Second)
+		time.Sleep(10 * time.Millisecond)
 
 		dh := dn.hist.GetHistory()
 		dh.ShowHistory()
@@ -162,6 +162,69 @@ func TestTwoRequestMisorderingsAreCorrected047(t *testing.T) {
 		cv.So(dh.CountGenerates(), cv.ShouldEqual, 0)
 
 		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "123")
+
+		po("done with order_test")
+	})
+}
+
+func TestFiveRequestMisorderingsAreCorrected049(t *testing.T) {
+
+	dn := NewBoundary("downstream")
+
+	ab2lp := make(chan *tunnelPacket)
+	lp2ab := make(chan *tunnelPacket)
+
+	longPollDur := 2 * time.Second
+	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
+
+	dn.Start()
+	defer dn.Stop()
+
+	lp.Start()
+	defer lp.Stop()
+
+	// service sends on lp2ab without setting up a full ab
+	shutdown := make(chan bool)
+	go func() {
+		for {
+			select {
+			case got := <-lp2ab:
+				po("lp2ab reader got packet: '%s'", string(got.respdup.Bytes()))
+			case <-shutdown:
+				return
+			}
+		}
+	}()
+	defer close(shutdown)
+
+	cv.Convey("Given that requests can arrive out of order (while the two http connection race), we should detect this and re-order both requests into sequence.", t, func() {
+
+		// test *request* reorder alone (distinct from *reply* reordering):
+
+		// send serial numbers out of order
+
+		// should be delayed as out of order
+		SendHelper(lp.ab2lp, 5)
+
+		// should go immediately, as '1' by itself
+		SendHelper(lp.ab2lp, 1)
+
+		SendHelper(lp.ab2lp, 3)
+		SendHelper(lp.ab2lp, 2) // should get '23' together
+
+		SendHelper(lp.ab2lp, 4) // should get '45' together
+
+		time.Sleep(10 * time.Millisecond)
+
+		dh := dn.hist.GetHistory()
+		dh.ShowHistory()
+
+		cv.So(dh.CountAbsorbs(), cv.ShouldEqual, 3)
+		cv.So(dh.CountGenerates(), cv.ShouldEqual, 0)
+
+		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "1")
+		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "23")
+		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "45")
 
 		po("done with order_test")
 	})
