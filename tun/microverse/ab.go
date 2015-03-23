@@ -451,6 +451,15 @@ type ClientHome struct {
 	alphaRTT []time.Duration
 	betaRTT  []time.Duration
 
+	// public version, update the returned values
+	// of GetAlphaRttCh and GetBetaRttCh by sending on s.UpdateRTT
+	UpdateRTT     chan bool
+	GetAlphaRttCh chan []time.Duration
+	GetBetaRttCh  chan []time.Duration
+
+	copyOfalphaRTT []time.Duration
+	copyOfbetaRTT  []time.Duration
+
 	lastAlphaDepart time.Time
 	lastBetaDepart  time.Time
 }
@@ -489,6 +498,12 @@ func NewClientHome() *ClientHome {
 
 		alphaRTT: make([]time.Duration, 0),
 		betaRTT:  make([]time.Duration, 0),
+
+		UpdateRTT:      make(chan bool),
+		GetAlphaRttCh:  make(chan []time.Duration),
+		GetBetaRttCh:   make(chan []time.Duration),
+		copyOfalphaRTT: make([]time.Duration, 0),
+		copyOfbetaRTT:  make([]time.Duration, 0),
 	}
 	return s
 }
@@ -613,6 +628,16 @@ func (s *ClientHome) Start() {
 					fmt.Printf("\n latency: %v\n", time.Duration(0))
 					s.localReqArrTm = 0 // send done instantly, reset to indicate no pending send.
 				}
+
+			case <-s.UpdateRTT:
+				s.copyOfalphaRTT = make([]time.Duration, len(s.alphaRTT))
+				s.copyOfbetaRTT = make([]time.Duration, len(s.betaRTT))
+				copy(s.copyOfalphaRTT, s.alphaRTT)
+				copy(s.copyOfbetaRTT, s.betaRTT)
+
+			case s.GetAlphaRttCh <- s.copyOfalphaRTT:
+			case s.GetBetaRttCh <- s.copyOfbetaRTT:
+
 			}
 		}
 	}()
@@ -705,7 +730,7 @@ case doneRR := <-chaser.responseBack:
 //
 // When finish, DoRequestReponse will send rr on the channel chase.responseBack
 func (rr *ReqRep) DoRequestResponse(work []byte, urlPath string, chaser *Chaser) {
-	go func() {
+	func() {
 		defer func() {
 			if chaser.responseBack != nil {
 				select {

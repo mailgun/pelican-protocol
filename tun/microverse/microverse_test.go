@@ -111,7 +111,7 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 	ab2lp := make(chan *tunnelPacket)
 	lp2ab := make(chan *tunnelPacket)
 
-	longPollDur := 2 * time.Second
+	longPollDur := 20 * time.Millisecond
 	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
 
 	up := NewBoundary("upstream")
@@ -121,10 +121,10 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 	defer dn.Stop()
 
 	lp.Start()
-	defer lp.Stop()
+	//	defer lp.Stop()
 
 	ab.Start()
-	defer ab.Stop()
+	//	defer ab.Stop()
 
 	up.Start()
 	defer up.Stop()
@@ -132,9 +132,16 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 	cv.Convey("Given a standalone LittlePoll and AB microverse, even without any downstream/upstream Boundary traffic whatsoever, the AB and LP should exchange messages every long-poll timeout; and this should be the only traffic seen.", t, func() {
 
 		// above set long-poll dur to 2 sec, so we should see 2 in this 5 second interval.
-		sleep := 5 * time.Second
+		sleep := 50 * time.Millisecond
 		time.Sleep(sleep)
 		po("after %v sleep", sleep)
+
+		ab.home.UpdateRTT <- true
+		alphaRTT := <-ab.home.GetAlphaRttCh
+		betaRTT := <-ab.home.GetBetaRttCh
+
+		ab.Stop()
+		lp.Stop()
 
 		lp.ShowTmHistory()
 		ab.ShowTmHistory()
@@ -152,9 +159,6 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 		cv.So(uh.CountAbsorbs(), cv.ShouldEqual, 0)
 		cv.So(dh.CountGenerates(), cv.ShouldEqual, 0)
 		cv.So(dh.CountAbsorbs(), cv.ShouldEqual, 0)
-
-		alphaRTT := ab.home.GetAlphaRoundtripDurationHistory() // []time.Dur
-		betaRTT := ab.home.GetBetaRoundtripDurationHistory()   //
 
 		fmt.Printf("alpha RTT: '%v'\n", alphaRTT)
 		fmt.Printf("beta RTT: '%v'\n", betaRTT)
