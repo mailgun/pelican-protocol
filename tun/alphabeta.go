@@ -103,6 +103,12 @@ type Chaser struct {
 	lastRecvSerialNumberSeen int64
 
 	misorderedReplies map[int64]*SerResp
+
+	tmLastRecv []time.Time
+	tmLastSend []time.Time
+
+	hist *HistoryLog
+	name string
 }
 
 type ChaserConfig struct {
@@ -204,6 +210,12 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		inactiveTimer:        time.NewTimer(cfg.ShutdownInactiveDur),
 		nextSendSerialNumber: 1,
 		misorderedReplies:    make(map[int64]*SerResp),
+
+		tmLastSend: make([]time.Time, 0),
+		tmLastRecv: make([]time.Time, 0),
+
+		hist: NewHistoryLog("Chaser"),
+		name: "Chaser",
 	}
 
 	po("\n\n Chaser %p gets NewRW() = %p '%s' with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.name, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
@@ -881,4 +893,61 @@ type SerResp struct {
 	response       []byte
 	responseSerial int64 // order the sends with content by serial number
 	tm             time.Time
+}
+
+/// logging
+
+func (r *Chaser) NoteTmRecv() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	r.tmLastRecv = append(r.tmLastRecv, time.Now())
+}
+
+func (r *Chaser) NoteTmSent() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	r.tmLastSend = append(r.tmLastSend, time.Now())
+}
+
+func (r *Chaser) ShowTmHistory() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	po("Chaser.ShowTmHistory() called.")
+
+	nr := len(r.tmLastRecv)
+	ns := len(r.tmLastSend)
+	min := nr
+	if ns < min {
+		min = ns
+	}
+
+	fmt.Printf("%s history: ns=%d.  nr=%d.  min=%d.\n", r.name, ns, nr, min)
+
+	for i := 0; i < ns; i++ {
+		fmt.Printf("%s history of Send from AB to LP '%v'  \n",
+			r.name,
+			r.tmLastSend[i])
+	}
+
+	for i := 0; i < nr; i++ {
+		fmt.Printf("%s history of Recv from LP at AB '%v'  \n",
+			r.name,
+			r.tmLastRecv[i])
+	}
+
+	for i := 0; i < min; i++ {
+		fmt.Printf("%s history: elap: '%s'    Send '%v'   Recv '%v'    \n",
+			r.name,
+			r.tmLastSend[i].Sub(r.tmLastRecv[i]),
+			r.tmLastSend[i],
+			r.tmLastRecv[i])
+	}
+
+	for i := 0; i < min-1; i++ {
+		fmt.Printf("%s history: send-to-send elap: '%s'\n", r.name, r.tmLastSend[i+1].Sub(r.tmLastSend[i]))
+	}
+	for i := 0; i < min-1; i++ {
+		fmt.Printf("%s history: recv-to-recv elap: '%s'\n", r.name, r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
+	}
+
 }

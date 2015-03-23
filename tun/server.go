@@ -302,6 +302,18 @@ func po(format string, a ...interface{}) {
 	}
 }
 
+func ToSerReq(pack *tunnelPacket) *SerReq {
+	return &SerReq{
+		reqBody:       pack.reqBody,
+		requestSerial: pack.requestSerial,
+	}
+}
+
+type SerReq struct {
+	reqBody       []byte
+	requestSerial int64 // order the sends with content by serial number
+}
+
 func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string, reqSerial int64) ([]byte, error) {
 	pack := &tunnelPacket{
 		resp:          c,

@@ -307,6 +307,11 @@ func (s *LittlePoll) Start() error {
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
 
+				// get the oldest packet, and reply using that.
+
+				// our long-poll timer reflects the time since
+				// the most recent packet arrival.
+
 				// we save the SerReq part of pack above, so we can send along the
 				// reply at any point. Thus (and become of this PushLeft) we do
 				// first-Request-in-first-Response-out, although obviously not
@@ -315,7 +320,7 @@ func (s *LittlePoll) Start() error {
 				waiters.PushLeft(pack)
 
 				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.reqBody))
-				// Now:
+
 				// have to both send and receive
 
 				po("%p  just before s.rw.SendToDownCh()", s)

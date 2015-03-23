@@ -1,6 +1,7 @@
 package pelicantun
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -57,6 +58,7 @@ type LongPoller struct {
 	pollDur time.Duration
 
 	Dest Addr
+	name string
 
 	mut          sync.Mutex
 	CloseKeyChan chan string
@@ -74,6 +76,9 @@ type LongPoller struct {
 	// consumed until no more available, forceReplySn should
 	// supply the serial numbers to be assigned replies.
 	forceReplySn []int64
+
+	tmLastSend []time.Time
+	tmLastRecv []time.Time
 }
 
 // Make a new LongPoller as a part of the server (ReverseProxy is the server;
@@ -96,6 +101,9 @@ func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
 		reqStop:            make(chan bool),
 		Done:               make(chan bool),
 		ClientPacketRecvd:  make(chan *tunnelPacket),
+		tmLastSend:         make([]time.Time, 0),
+		tmLastRecv:         make([]time.Time, 0),
+		name:               "LongPoller",
 		key:                string(key),
 		Dest:               dest,
 		CloseKeyChan:       make(chan string),
@@ -182,6 +190,10 @@ func (s *LongPoller) Start() error {
 		longPollTimeUp := time.NewTimer(s.pollDur)
 
 		var pack *tunnelPacket
+
+		// set this to finish re-ordering a packet. Return to nil when
+		// done writing the re-ordered packet.
+		coalescedSequence := make([]*SerReq, 0)
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LongPoller, we read from the server
@@ -298,6 +310,9 @@ func (s *LongPoller) Start() error {
 
 				po("%p '%s' longPoller got client packet! recvCount now: %d", s, skey, s.recvCount)
 
+				// ignore negative serials--they were just for getting
+				// a server initiated reply medium. And we should never send
+				// a zero serial -- they start at 1.
 				if pack.requestSerial > 0 {
 
 					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
@@ -332,6 +347,18 @@ func (s *LongPoller) Start() error {
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
 
+				// get the oldest packet, and reply using that.
+
+				// our long-poll timer reflects the time since
+				// the most recent packet arrival.
+
+				// we save the SerReq part of pack above, so we can send along the
+				// reply at any point. Thus (and become of this PushLeft) we do
+				// first-Request-in-first-Response-out, although obviously not
+				// necessarily waiting to transport the actual downstream response to any
+				// given request.
+				waiters.PushLeft(pack)
+
 				// ===================================
 				// got to here in the merge of little.go and longpoll.go
 				// ===================================
@@ -347,28 +374,59 @@ func (s *LongPoller) Start() error {
 				if len(pack.reqBody) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
+
+					// append pack to where it belongs
+					coalescedSequence = append(coalescedSequence, ToSerReq(pack))
+
+					// *goes after* additions: check for any that can go in-order *after* pack
+					lookFor := pack.requestSerial + 1
+					for {
+						if ooo, ok := s.misorderedRequests[lookFor]; ok {
+							coalescedSequence = append(coalescedSequence, ooo)
+							delete(s.misorderedRequests, lookFor)
+							s.lastRequestSerialNumberSeen = ooo.requestSerial
+							lookFor++
+						} else {
+							break
+						}
+					}
+					// coalescedSequence will contain our buffers in order
+
+					writeMe := pack.reqBody
+
+					// if we have more than pack, adjust writeMe to
+					// encompass all buffers that are ready to go in-order now.
+					if len(coalescedSequence) > 1 {
+						// now concatenate all together for one send
+						var allTogether bytes.Buffer
+						for _, v := range coalescedSequence {
+							allTogether.Write(v.reqBody)
+						}
+						writeMe = allTogether.Bytes()
+					}
+
+					if len(writeMe) == 0 {
+						panic("should be writing some bytes here, but len(writeMe) == 0")
+					}
+
 					select {
 					// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
 					// in fact we do want the back pressure to keep us from
 					// writing too much too fast.
-					case s.rw.SendToDownCh() <- pack.reqBody:
-						po("%p '%s' sent data on s.rw.SendToDownCh()", s, skey)
+					case s.rw.SendToDownCh() <- writeMe:
+						po("%p '%s' sent data '%s' on s.rw.SendToDownCh()", s, skey, string(writeMe))
 					case <-s.reqStop:
 						po("%p '%s' got reqStop, *not* returning", s, skey)
 						// avoid deadlock on shutdown, but do
 						// finish processing this packet, don't return yet
 					}
+
+					coalescedSequence = coalescedSequence[:0]
 				} // end if len(pack.reqBody) > 0
 
 				po("%p '%s' just after s.rw.SendToDownCh()", s, skey)
 
 				// transfer data from server to client
-
-				// get the oldest packet, and reply using that. http requests
-				// get serviced mostly FIFO this way, and our long-poll
-				// timer reflects the time since the most recent packet
-				// arrival.
-				waiters.PushLeft(pack)
 
 				// TODO: instead of fixed 10msec, this threshold should be
 				// 1x the one-way-trip time from the client-to-server, since that is
@@ -456,4 +514,56 @@ func (s *LongPoller) dial() error {
 	}
 
 	return err
+}
+
+func (r *LongPoller) NoteTmRecv() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	r.tmLastRecv = append(r.tmLastRecv, time.Now())
+}
+
+func (r *LongPoller) NoteTmSent() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	r.tmLastSend = append(r.tmLastSend, time.Now())
+}
+
+func (r *LongPoller) ShowTmHistory() {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+	po("LongPoller.ShowTmHistory() called.")
+	nr := len(r.tmLastRecv)
+	ns := len(r.tmLastSend)
+	min := nr
+	if ns < min {
+		min = ns
+	}
+	fmt.Printf("%s history: ns=%d.  nr=%d.  min=%d.\n", r.name, ns, nr, min)
+
+	for i := 0; i < ns; i++ {
+		fmt.Printf("%s history of Send from LP to AB '%v'  \n",
+			r.name,
+			r.tmLastSend[i])
+	}
+
+	for i := 0; i < nr; i++ {
+		fmt.Printf("%s history of Recv from AB at LP '%v'  \n",
+			r.name,
+			r.tmLastRecv[i])
+	}
+
+	for i := 0; i < min; i++ {
+		fmt.Printf("%s history: elap: '%s'    Recv '%v'   Send '%v'  \n",
+			r.name,
+			r.tmLastSend[i].Sub(r.tmLastRecv[i]),
+			r.tmLastRecv[i], r.tmLastSend[i])
+	}
+
+	for i := 0; i < min-1; i++ {
+		fmt.Printf("%s history: send-to-send elap: '%s'\n", r.name, r.tmLastSend[i+1].Sub(r.tmLastSend[i]))
+	}
+	for i := 0; i < min-1; i++ {
+		fmt.Printf("%s history: recv-to-recv elap: '%s'\n", r.name, r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
+	}
+
 }
