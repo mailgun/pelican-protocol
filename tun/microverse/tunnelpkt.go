@@ -36,3 +36,8 @@ type SerReq struct {
 	reqBody       []byte
 	requestSerial int64 // order the sends with content by serial number
 }
+
+type SerResp struct {
+	response       []byte
+	responseSerial int64 // order the sends with content by serial number
+}

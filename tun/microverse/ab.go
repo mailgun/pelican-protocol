@@ -54,6 +54,8 @@ type Chaser struct {
 
 	nextSendSerialNumber     int64
 	lastRecvSerialNumberSeen int64
+
+	misorderedReplies map[int64]*SerResp
 }
 
 type ChaserConfig struct {
@@ -122,6 +124,7 @@ func NewChaser(
 		hist:                 NewHistoryLog("Chaser"),
 		name:                 "Chaser",
 		nextSendSerialNumber: 1,
+		misorderedReplies:    make(map[int64]*SerResp),
 	}
 
 	// always closed
@@ -263,11 +266,29 @@ func (s *Chaser) startAlpha() {
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
 
+				sendMe := replyBytes
+
+				by := bytes.NewBuffer(replyBytes)
+
+				tryMe := recvSerial + 1
+				for {
+					ooo, ok := s.misorderedReplies[tryMe]
+					if !ok {
+						break
+					}
+					po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
+						tryMe, string(ooo.response))
+					by.Write(ooo.response)
+					delete(s.misorderedReplies, tryMe)
+					s.lastRecvSerialNumberSeen = tryMe
+					tryMe++
+					sendMe = by.Bytes()
+				}
 				// deliver any response data (body) to our client, but only
 				// bother if len(replyBytes) > 0, as checked above.
 				select {
-				case s.repliesHere <- replyBytes:
-					po("*p Alpha sent to repliesHere: '%s'", string(replyBytes))
+				case s.repliesHere <- sendMe:
+					po("*p Alpha sent to repliesHere: '%s'", string(sendMe))
 				case <-s.reqStop:
 					//po("%p Alpha got s.reqStop", s)
 					return
@@ -350,10 +371,29 @@ func (s *Chaser) startBeta() {
 
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
+				sendMe := replyBytes
 
-				// deliver any response data (body) to our client
+				by := bytes.NewBuffer(replyBytes)
+
+				tryMe := recvSerial + 1
+				for {
+					ooo, ok := s.misorderedReplies[tryMe]
+					if !ok {
+						break
+					}
+					po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
+						tryMe, string(ooo.response))
+					by.Write(ooo.response)
+					delete(s.misorderedReplies, tryMe)
+					s.lastRecvSerialNumberSeen = tryMe
+					tryMe++
+					sendMe = by.Bytes()
+				}
+				// deliver any response data (body) to our client, but only
+				// bother if len(replyBytes) > 0, as checked above.
 				select {
-				case s.repliesHere <- replyBytes:
+				case s.repliesHere <- sendMe:
+					po("*p Beta sent to repliesHere: '%s'", string(sendMe))
 				case <-s.reqStop:
 					//po("%p Beta got s.reqStop", s)
 					return
@@ -694,7 +734,10 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 
 	if recvSerial >= 0 {
 		if recvSerial != s.lastRecvSerialNumberSeen+1 {
-			panic(fmt.Sprintf("recvSerial =%d but s.lastRecvSerialNumberSeen = %d which is not one less", recvSerial, s.lastRecvSerialNumberSeen))
+			s.misorderedReplies[recvSerial] = &SerResp{response: back, responseSerial: recvSerial}
+
+			// wait to send upstream: indicate this by giving back 0 length.
+			back = back[:0]
 		} else {
 			s.lastRecvSerialNumberSeen++
 		}

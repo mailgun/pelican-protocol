@@ -17,7 +17,8 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	ab2lp := make(chan *tunnelPacket)
 	lp2ab := make(chan *tunnelPacket)
 
-	longPollDur := 500 * time.Millisecond
+	// should see no long polls in this test
+	longPollDur := 1 * time.Hour
 	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
 	lp.SetReplySerialReordering([]int64{5, 1, 3, 2, 4})
 
@@ -34,19 +35,23 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	ab.Start()
 	defer ab.Stop()
 
-	up.SendEvery(1 * time.Second)
 	up.Start()
 	defer up.Stop()
 
 	cv.Convey("Previous test was for request order, this is for reply order: Given that replies can arrive out of order (while the two http connection race), we should detect this and re-order replies into sequence.", t, func() {
 		// test reply reorder:
 
-		up.Gen([]byte{5})
-		up.Gen([]byte{1})
-		up.Gen([]byte{3})
-		up.Gen([]byte{2})
-		up.Gen([]byte{4})
-		time.Sleep(10 * time.Millisecond)
+		up.Gen([]byte{'5'})
+
+		up.Gen([]byte{'1'})
+		time.Sleep(500 * time.Millisecond)
+
+		up.Gen([]byte{'3'})
+		up.Gen([]byte{'2'})
+		time.Sleep(500 * time.Millisecond)
+
+		up.Gen([]byte{'4'})
+		time.Sleep(500 * time.Millisecond)
 
 		uh := up.hist.GetHistory()
 
@@ -55,9 +60,9 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 		cv.So(uh.CountAbsorbs(), cv.ShouldEqual, 3)
 		cv.So(uh.CountGenerates(), cv.ShouldEqual, 5)
 
-		cv.So(string(uh.absorbHistory[0].what), cv.ShouldEqual, "1")
-		cv.So(string(uh.absorbHistory[1].what), cv.ShouldEqual, "23")
-		cv.So(string(uh.absorbHistory[2].what), cv.ShouldEqual, "45")
+		cv.So(string(uh.absorbHistory[2].what), cv.ShouldEqual, "..downstream echo of ('1')..")
+		cv.So(string(uh.absorbHistory[5].what), cv.ShouldEqual, "..downstream echo of ('2')....downstream echo of ('3')..")
+		cv.So(string(uh.absorbHistory[7].what), cv.ShouldEqual, "..downstream echo of ('4')....downstream echo of ('5')..")
 
 	})
 }

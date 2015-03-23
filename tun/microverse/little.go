@@ -116,14 +116,22 @@ func (s *LittlePoll) Start() error {
 
 		// duration of the long poll
 
-		longPollTimeUp := time.NewTimer(s.pollDur)
+		var longPollTimeUp *time.Timer
+		if int64(s.pollDur) > 0 {
+			longPollTimeUp = time.NewTimer(s.pollDur)
+		} else {
+			// s.pollDur is 0, so do not do the long-poll
+			// timer at all. useful for tests.
+			longPollTimeUp = time.NewTimer(24 * time.Hour)
+			longPollTimeUp.Stop()
+		}
 
 		var pack *tunnelPacket
 
 		// set this to finish re-ordering a packet. Return to nil when
 		// done writing the re-ordered packet.
 		goesBefore := make([]*SerReq, 0)
-		goesBeforeByteCount := int64(0)
+		//goesBeforeByteCount := int64(0)
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LittlePoll, we read from the server
@@ -192,8 +200,14 @@ func (s *LittlePoll) Start() error {
 
 			close(oldest.done) // send reply!
 
+			// debug
+			if oldest.replySerial >= 0 {
+				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.requestSerial)
+			} else {
+				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.requestSerial)
+			}
+
 			// little only -- this actually does the send reply in the microverse.
-			po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()), countForUpstream, oldest.requestSerial)
 			select {
 			case s.lp2ab <- oldest:
 				//okay
@@ -266,38 +280,40 @@ func (s *LittlePoll) Start() error {
 					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
 						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
 							pack.requestSerial, s.lastRequestSerialNumberSeen)
-						// do we have previous value(s) that can fill the gap?
-						if len(goesBefore) > 0 || goesBeforeByteCount != 0 {
-							panic(fmt.Sprintf("at receive from ab, the len(goesBefore) should be zero (is %d), and the goesBeforeByteCount should be 0 (is %d)", len(goesBefore), goesBeforeByteCount))
-						}
-					recoverOutOfOrderCheck:
-						for i := s.lastRequestSerialNumberSeen + 1; i < pack.requestSerial; i++ {
-							ooo, ok := s.misorderedRequests[i]
-							if !ok {
-								break recoverOutOfOrderCheck
-							}
-							goesBefore = append(goesBefore, ooo)
-							goesBeforeByteCount += int64(len(ooo.reqBody))
-							// not yet: only once we sure: delete(s.misorderedRequests, i)
-						}
+						/*
 
-						// done with any re-ordering into goesBefore slice, check if we
-						// can use pack.requestSerial now
-						n := len(goesBefore)
-						if n > 0 && goesBefore[n-1].requestSerial+1 == pack.requestSerial {
-							// we are back in order! (using goesBefore *before* pack)
-							for _, v := range goesBefore {
-								delete(s.misorderedRequests, v.requestSerial)
-							}
-							s.lastRequestSerialNumberSeen = pack.requestSerial
-							// remember to fill goesBefore before pack now.
-							goto doneWithOutOfOrderRecoveryCheck
-						} else {
-							// incomplete chain, start over.
-							goesBefore = goesBefore[:0]
-							goesBeforeByteCount = 0
-						}
+								// do we have previous value(s) that can fill the gap?
+								if len(goesBefore) > 0 || goesBeforeByteCount != 0 {
+									panic(fmt.Sprintf("at receive from ab, the len(goesBefore) should be zero (is %d), and the goesBeforeByteCount should be 0 (is %d)", len(goesBefore), goesBeforeByteCount))
+								}
+							recoverOutOfOrderCheck:
+								for i := s.lastRequestSerialNumberSeen + 1; i < pack.requestSerial; i++ {
+									ooo, ok := s.misorderedRequests[i]
+									if !ok {
+										break recoverOutOfOrderCheck
+									}
+									goesBefore = append(goesBefore, ooo)
+									goesBeforeByteCount += int64(len(ooo.reqBody))
+									// not yet: only once we sure: delete(s.misorderedRequests, i)
+								}
 
+								// done with any re-ordering into goesBefore slice, check if we
+								// can use pack.requestSerial now
+								n := len(goesBefore)
+								if n > 0 && goesBefore[n-1].requestSerial+1 == pack.requestSerial {
+									// we are back in order! (using goesBefore *before* pack)
+									for _, v := range goesBefore {
+										delete(s.misorderedRequests, v.requestSerial)
+									}
+									s.lastRequestSerialNumberSeen = pack.requestSerial
+									// remember to fill goesBefore before pack now.
+									goto doneWithOutOfOrderRecoveryCheck
+								} else {
+									// incomplete chain, start over.
+									goesBefore = goesBefore[:0]
+									goesBeforeByteCount = 0
+								}
+						*/
 						// pack.requestSerial is out of order, and we can't fill all
 						// the gaps
 
@@ -315,14 +331,14 @@ func (s *LittlePoll) Start() error {
 							s.misorderedRequests[pack.requestSerial] = ToSerReq(pack)
 							// length 0 the body so we don't forward downstream out-of-order now.
 							pack.reqBody = pack.reqBody[:0]
-							goto doneWithOutOfOrderRecoveryCheck
+							//goto doneWithOutOfOrderRecoveryCheck
 						}
 					} else {
 						s.lastRequestSerialNumberSeen = pack.requestSerial
 					}
 				}
 
-			doneWithOutOfOrderRecoveryCheck:
+				//			doneWithOutOfOrderRecoveryCheck:
 
 				// reset timer. only hold this packet open for at most 'dur' time.
 				// since we will be replying to oldestReqPack (if any) immediately,
@@ -393,7 +409,7 @@ func (s *LittlePoll) Start() error {
 					}
 
 					goesBefore = goesBefore[:0]
-					goesBeforeByteCount = 0
+					//goesBeforeByteCount = 0
 				} // end if len(pack) > 0
 
 				po("%p  just after s.down.Absorb <- pack", s)
