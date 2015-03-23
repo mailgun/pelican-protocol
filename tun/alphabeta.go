@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net"
 	"sync"
@@ -120,9 +119,10 @@ type ChaserConfig struct {
 
 func DefaultChaserConfig() *ChaserConfig {
 	return &ChaserConfig{
-		ConnectTimeout:      2000 * time.Millisecond,
-		TransportTimeout:    60 * time.Second,
-		BufSize:             4096,
+		ConnectTimeout:   2000 * time.Millisecond,
+		TransportTimeout: 60 * time.Second,
+		//BufSize:             1 * 1024 * 1024,
+		BufSize:             64 * 1024,
 		ShutdownInactiveDur: 10 * time.Minute,
 	}
 }
@@ -828,7 +828,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	}()
 
 	if err != nil && err != io.EOF {
-		log.Println(err.Error())
+		po("%p '%s' Chaser.DoRequestResponse(url='%s') : '%s'", err.Error(), s, string(s.key[:5]))
 		return []byte{}, -1, err
 	}
 

@@ -71,6 +71,10 @@ type LongPoller struct {
 	// them back in the right order.
 	misorderedRequests map[int64]*SerReq
 
+	// estimated time for RTT to downstream server,
+	// getting this right can speed things up significantly
+	fastWaitDur time.Duration
+
 	// test reply packet re-ordering in AB by letting
 	// the test request a re-numbering of the reply packets.
 	// consumed until no more available, forceReplySn should
@@ -110,7 +114,15 @@ func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
 		pollDur:            pollDur,
 		nextReplySerial:    1,
 		misorderedRequests: make(map[int64]*SerReq),
+		//fastWaitDur:        20 * time.Microsecond, // 0.352s with 1MB buffers
+		//fastWaitDur: 5 * time.Millisecond, // locally 2.299s with 1MB buffers
+		//fastWaitDur: 1 * time.Millisecond, // 0.772sec
+		//fastWaitDur: 100 * time.Microsecond, // 0.374s
+		fastWaitDur: 0, // 0.325s with 1MB buffers
 	}
+
+	// buffer sizes like DefaultChaserConfig().BufSize have a large impact on performance. set in DefaultChaserConfig() in alphabeta.go.
+	po("\n *** using fastWaitDur: %v   DefaultChaserConfig().BufSize: %v\n\n", s.fastWaitDur, DefaultChaserConfig().BufSize)
 
 	return s
 }
@@ -179,7 +191,7 @@ func (s *LongPoller) Start() error {
 	}
 
 	// s.dial() sets s.conn on success.
-	s.rw = NewServerRW("ServerRW/LongPoller", s.conn, 0, nil, nil, s)
+	s.rw = NewServerRW("ServerRW/LongPoller", s.conn, 1024*1024, nil, nil, s)
 	s.rw.Start()
 
 	go func() {
@@ -428,7 +440,10 @@ func (s *LongPoller) Start() error {
 
 				// transfer data from server to client
 
-				// TODO: instead of fixed 10msec, this threshold should be
+				// This is an important optimization: omitting this pause/check
+				// makes things 12x slower on the local machine.
+				//
+				// TODO: instead of fixed 5msec, this threshold should be
 				// 1x the one-way-trip time from the client-to-server, since that is
 				// the expected additional alternative wait time if we have to reply
 				// with an empty reply now.
@@ -436,28 +451,32 @@ func (s *LongPoller) Start() error {
 				// add any data from the next 10 msec to return packet to client
 				// hence if the server replies quickly, we can reply quickly
 				// to the client too.
-				startFastWaitTm := time.Now()
-				select {
-				case b500 := <-s.rw.RecvFromDownCh():
-					po("%p '%s' longpoller  <-s.rw.RecvFromDownCh() got b500='%s' during fast-reply-wait (after %v)\n", s, skey, string(b500), time.Since(startFastWaitTm))
+				if int64(s.fastWaitDur) > 0 {
 
-					oldest := waiters.PeekRight()
-					_, err := oldest.resp.Write(b500)
-					if err != nil {
-						panic(err)
+					startFastWaitTm := time.Now()
+					select {
+					case b500 := <-s.rw.RecvFromDownCh():
+						po("%p '%s' longpoller  <-s.rw.RecvFromDownCh() got b500='%s' during fast-reply-wait (after %v)\n", s, skey, string(b500), time.Since(startFastWaitTm))
+
+						oldest := waiters.PeekRight()
+						_, err := oldest.resp.Write(b500)
+						if err != nil {
+							panic(err)
+						}
+						countForUpstream += int64(len(b500))
+
+						_, err = oldest.respdup.Write(b500)
+						if err != nil {
+							panic(err)
+						}
+
+					case <-time.After(s.fastWaitDur): // slightly faster locally than 500 usec: 1.2sec.
+						//case <-time.After(20 * time.Millisecond): // 1msec => 1.20s; same with 500 usec; 2msec-3msec => 1.09s, slightly faster. 4msec => 1.105sec 5msec => 1.10sec
+						po("%p '%s' after 10msec of extra s.rw.RecvFromDownCh() reads", s, skey)
+
+						// stop trying to read from server downstream, and send what
+						// we got upstream to client.
 					}
-					countForUpstream += int64(len(b500))
-
-					_, err = oldest.respdup.Write(b500)
-					if err != nil {
-						panic(err)
-					}
-
-				case <-time.After(10 * time.Millisecond):
-					po("%p '%s' after 10msec of extra s.rw.RecvFromDownCh() reads", s, skey)
-
-					// stop trying to read from server downstream, and send what
-					// we got upstream to client.
 				}
 
 				// key piece of logic for the long-poll is here:

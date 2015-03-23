@@ -172,7 +172,7 @@ type NetConnReader struct {
 // It may be overriden in the call to NewnetConnReader by setting the bufsz
 // parameter.
 //
-const NetConnReaderDefaultBufSizeBytes = 4 * 1024 // 4K
+const NetConnReaderDefaultBufSizeBytes = 1 * 1024 * 1024
 
 // make a new NetConnReader. if bufsz is 0 then we default
 // to using a buffer of size NetConnReaderDefaultBufSizeBytes.
