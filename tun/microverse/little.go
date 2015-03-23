@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
@@ -31,21 +32,26 @@ type LittlePoll struct {
 
 	nextReplySerial             int64
 	lastRequestSerialNumberSeen int64
+
+	// save misordered requests here, to play
+	// them back in the right order.
+	misorderedRequests map[int64]*SerReq
 }
 
 func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan *tunnelPacket) *LittlePoll {
 
 	s := &LittlePoll{
-		reqStop:         make(chan bool),
-		Done:            make(chan bool),
-		pollDur:         pollDur,
-		ab2lp:           ab2lp, // receive from "socks-proxy" (Chaser)
-		lp2ab:           lp2ab, // send to "socks-proxy" (Chaser)
-		down:            dn,    // the "web-server", downstream most boundary target.
-		tmLastSend:      make([]time.Time, 0),
-		tmLastRecv:      make([]time.Time, 0),
-		name:            "LittlePoll",
-		nextReplySerial: 1,
+		reqStop:            make(chan bool),
+		Done:               make(chan bool),
+		pollDur:            pollDur,
+		ab2lp:              ab2lp, // receive from "socks-proxy" (Chaser)
+		lp2ab:              lp2ab, // send to "socks-proxy" (Chaser)
+		down:               dn,    // the "web-server", downstream most boundary target.
+		tmLastSend:         make([]time.Time, 0),
+		tmLastRecv:         make([]time.Time, 0),
+		name:               "LittlePoll",
+		nextReplySerial:    1,
+		misorderedRequests: make(map[int64]*SerReq),
 	}
 
 	return s
@@ -107,6 +113,11 @@ func (s *LittlePoll) Start() error {
 		longPollTimeUp := time.NewTimer(s.pollDur)
 
 		var pack *tunnelPacket
+
+		// set this to finish re-ordering a packet. Return to nil when
+		// done writing the re-ordered packet.
+		goesBefore := make([]*SerReq, 0)
+		goesBeforeByteCount := int64(0)
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LittlePoll, we read from the server
@@ -181,6 +192,7 @@ func (s *LittlePoll) Start() error {
 				//okay
 			case <-s.reqStop:
 				// shutting down
+				po("lp sendReplyUpstream got reqStop, returning false")
 				return false
 			}
 
@@ -190,28 +202,6 @@ func (s *LittlePoll) Start() error {
 				longPollTimeUp.Stop()
 			}
 			return true
-
-			/* new
-			select {
-			// in real code: send curReply on r, where
-			// r:= waiters.PeekRight()
-
-			case s.lp2ab <- curReply: // send
-				waiters.PopRight()
-				s.NoteTmSent()
-				countForUpstream = 0
-				curReply = curReply[:0]
-
-			case <-s.reqStop:
-				po("lp sendReplyUpstream got reqStop, returning false")
-				return false
-			}
-
-			if waiters.Empty() {
-				longPollTimeUp.Stop()
-			}
-			return true
-			*/
 		}
 
 		for {
@@ -261,10 +251,80 @@ func (s *LittlePoll) Start() error {
 				s.NoteTmRecv()
 				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
 
+				// ignore negative serials--they were just for getting
+				// a server initiated reply medium. And we should never send
+				// a zero serial -- they start at 1.
+				if pack.requestSerial > 0 {
+
+					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
+						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
+							pack.requestSerial, s.lastRequestSerialNumberSeen)
+						// do we have previous value(s) that can fill the gap?
+						if len(goesBefore) > 0 || goesBeforeByteCount != 0 {
+							panic(fmt.Sprintf("at receive from ab, the len(goesBefore) should be zero (is %d), and the goesBeforeByteCount should be 0 (is %d)", len(goesBefore), goesBeforeByteCount))
+						}
+					recoverOutOfOrderCheck:
+						for i := s.lastRequestSerialNumberSeen + 1; i < pack.requestSerial; i++ {
+							ooo, ok := s.misorderedRequests[i]
+							if !ok {
+								break recoverOutOfOrderCheck
+							}
+							goesBefore = append(goesBefore, ooo)
+							goesBeforeByteCount += int64(len(ooo.reqBody))
+							// not yet: only once we sure: delete(s.misorderedRequests, i)
+						}
+
+						// done with any re-ordering into goesBefore slice, check if we
+						// can use pack.requestSerial now
+						n := len(goesBefore)
+						if n > 0 && goesBefore[n-1].requestSerial+1 == pack.requestSerial {
+							// we are back in order! (using goesBefore *before* pack)
+							for _, v := range goesBefore {
+								delete(s.misorderedRequests, v.requestSerial)
+							}
+							s.lastRequestSerialNumberSeen = pack.requestSerial
+							// remember to fill goesBefore before pack now.
+							goto doneWithOutOfOrderRecoveryCheck
+						} else {
+							// incomplete chain, start over.
+							goesBefore = goesBefore[:0]
+							goesBeforeByteCount = 0
+						}
+
+						// pack.requestSerial is out of order, and we can't fill all
+						// the gaps
+
+						// sanity check
+						_, already := s.misorderedRequests[pack.requestSerial]
+						if already {
+							panic(fmt.Sprintf("misordered request detected, but we already saw pack.requestSerial =%d. Misorder because s.lastRequestSerialNumberSeen = %d which is not one less than pack.requestSerial", pack.requestSerial, s.lastRequestSerialNumberSeen))
+						} else {
+							// sanity check that we aren't too far off
+							if pack.requestSerial < s.lastRequestSerialNumberSeen {
+								panic(fmt.Sprintf("duplicate request number from the past: pack.requestSerial =%d < s.lastRequestSerialNumberSeen = %d", pack.requestSerial, s.lastRequestSerialNumberSeen))
+							}
+
+							// store the misorder request until later, but still push onto waiters for replies.
+							s.misorderedRequests[pack.requestSerial] = ToSerReq(pack)
+							// length 0 the body so we don't forward downstream out-of-order now.
+							pack.reqBody = pack.reqBody[:0]
+							goto doneWithOutOfOrderRecoveryCheck
+						}
+					} else {
+						s.lastRequestSerialNumberSeen = pack.requestSerial
+					}
+				}
+
+			doneWithOutOfOrderRecoveryCheck:
+
 				// reset timer. only hold this packet open for at most 'dur' time.
 				// since we will be replying to oldestReqPack (if any) immediately,
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
+
+				// we save the SerReq part of pack above, so we can send along the
+				// reply at any point. Here we do first-in-first-out.
+				waiters.PushLeft(pack)
 
 				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.reqBody))
 
@@ -272,21 +332,61 @@ func (s *LittlePoll) Start() error {
 
 				po("%p  just before s.rw.SendToDownCh()", s)
 
+				// we don't need to check if goesBeforeByteCount > 0, becuase it
+				// will be > 0 iff len(pack.reqBody) is > 0.
 				if len(pack.reqBody) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
+
+					// append pack to where it belongs
+					goesBefore = append(goesBefore, ToSerReq(pack))
+
+					// *goes after* additions: check for any that can go in-order *after* pack
+					lookFor := pack.requestSerial + 1
+					for {
+						if ooo, ok := s.misorderedRequests[lookFor]; ok {
+							goesBefore = append(goesBefore, ooo)
+							delete(s.misorderedRequests, lookFor)
+							s.lastRequestSerialNumberSeen = ooo.requestSerial
+							lookFor++
+						} else {
+							break
+						}
+					}
+					// INVAR: goesBefore contains our buffers in order,
+
+					writeMe := pack.reqBody
+
+					// if we have more than pack, adjust writeMe to
+					// encompass all buffers that are ready to go in-order now.
+					if len(goesBefore) > 1 {
+						// now concatenate all together for one send
+						var allTogether bytes.Buffer
+						for _, sendMe := range goesBefore {
+							allTogether.Write(sendMe.reqBody)
+						}
+						writeMe = allTogether.Bytes()
+					}
+
+					if len(writeMe) == 0 {
+						panic("should never be writing no bytes here")
+					}
+
 					select {
 					// s.rw.SendToDownCh() is a 1000 buffered channel so okay to not use a timeout;
 					// in fact we do want the back pressure to keep us from
 					// writing too much too fast.
-					case s.down.Absorb <- pack.reqBody:
-						po("%p  sent data on s.downAbsorb <- pack", s)
+					case s.down.Absorb <- writeMe:
+						po("%p  sent data '%s' on s.downAbsorb <- pack", s, string(writeMe))
 						//po("%p  sent data on s.rw.SendToDownCh()", s)
 					case <-s.reqStop:
 						po("%p  got reqStop, *not* returning", s)
 						// avoid deadlock on shutdown, but do
 						// finish processing this packet, don't return yet
 					}
+
+					goesBefore = goesBefore[:0]
+					goesBeforeByteCount = 0
 				} // end if len(pack) > 0
 
 				po("%p  just after s.down.Absorb <- pack", s)
@@ -298,7 +398,8 @@ func (s *LittlePoll) Start() error {
 				// get serviced mostly FIFO this way, and our long-poll
 				// timer reflects the time since the most recent packet
 				// arrival.
-				waiters.PushLeft(pack)
+				// comment out here, move above
+				//waiters.PushLeft(pack)
 
 				// TODO: instead of fixed 10msec, this threshold should be
 				// 1x the one-way-trip time from the client-to-server, since that is

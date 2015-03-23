@@ -642,10 +642,19 @@ func (home *ClientHome) LocalSendLatencyHistory() []int64 {
 
 func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
 
+	// only assign serial numbers to client payload, not to internal zero-byte
+	// alpha/beta requests that are there just to give the server a reply medium.
+	reqSer := int64(-1)
+	if len(work) > 0 {
+		reqSer = s.getNextSendSerNum()
+	}
+
 	pack := &tunnelPacket{
-		requestSerial: s.getNextSendSerNum(),
-		reqBody:       work,
-		done:          make(chan bool),
+		SerReq: SerReq{
+			requestSerial: reqSer,
+			reqBody:       work,
+		},
+		done: make(chan bool),
 
 		resp:    NewMockResponseWriter(),
 		respdup: new(bytes.Buffer),
@@ -681,6 +690,14 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	case <-s.reqStop:
 		po("Chaser reqStop before lp2ab reply received")
 		return
+	}
+
+	if recvSerial >= 0 {
+		if recvSerial != s.lastRecvSerialNumberSeen+1 {
+			panic(fmt.Sprintf("recvSerial =%d but s.lastRecvSerialNumberSeen = %d which is not one less", recvSerial, s.lastRecvSerialNumberSeen))
+		} else {
+			s.lastRecvSerialNumberSeen++
+		}
 	}
 
 	return

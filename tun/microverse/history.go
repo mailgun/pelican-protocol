@@ -47,8 +47,8 @@ func (r *HistoryLog) DeepCopy() *HistoryLog {
 	defer r.mut.Unlock()
 
 	s := &HistoryLog{
-		generateHistory: make([]*Log, len(r.generateHistory)),
-		absorbHistory:   make([]*Log, len(r.absorbHistory)),
+		generateHistory: make([]*Log, 0, len(r.generateHistory)),
+		absorbHistory:   make([]*Log, 0, len(r.absorbHistory)),
 		name:            r.name,
 		numAbs:          r.numAbs,
 		numGen:          r.numGen,
@@ -96,7 +96,7 @@ func (s *HistoryLog) ShowHistory() {
 
 	fmt.Printf("%s history is:\n", s.name)
 	for i := 0; i < len(s.absorbHistory); i++ {
-		if s.absorbHistory[i].when.IsZero() {
+		if s.absorbHistory[i] == nil || s.absorbHistory[i].when.IsZero() {
 
 		} else {
 			fmt.Printf("Abs @ %v: '%s'\n",
@@ -104,7 +104,7 @@ func (s *HistoryLog) ShowHistory() {
 				string(s.absorbHistory[i].what))
 		}
 
-		if s.generateHistory[i].when.IsZero() {
+		if s.generateHistory[i] == nil || s.generateHistory[i].when.IsZero() {
 
 		} else {
 			fmt.Printf("Gen @ %v:                  '%s'\n",

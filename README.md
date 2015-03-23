@@ -66,4 +66,4 @@ Q: Is the server's hostkey bound to a particular domain name suffix or IP addres
 
 A: Nope. The private RSA key that identifies the server can be moved, backed-up, and restored onto a different IP address. Does this mean that if my private keys are stolen, then my site can be impersonated? Absolutely. Protect your keys with a strong passphrase, and use the auto-backup so you don't loose them.
 
-
+The advantage here is two fold: its simpler, and it still prevents phishing attacks. If your first use is compromised you are in trouble no matter what, so lets keep administration and use easy.

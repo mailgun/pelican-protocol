@@ -39,13 +39,15 @@ func TestRequestMisorderingsAreCorrected046(t *testing.T) {
 		r2, err := http.NewRequest("POST", "http://example.com/", reqBody2)
 		panicOn(err)
 		pack2 := &tunnelPacket{
-			resp:          c2,
-			respdup:       new(bytes.Buffer),
-			request:       r2,
-			reqBody:       body2,
-			done:          make(chan bool),
-			key:           "longpoll_test_key",
-			requestSerial: 2,
+			resp:    c2,
+			respdup: new(bytes.Buffer),
+			request: r2,
+			done:    make(chan bool),
+			key:     "longpoll_test_key",
+			SerReq: SerReq{
+				reqBody:       body2,
+				requestSerial: 2,
+			},
 		}
 
 		lp.ab2lp <- pack2
@@ -58,39 +60,51 @@ func TestRequestMisorderingsAreCorrected046(t *testing.T) {
 		panicOn(err)
 
 		pack1 := &tunnelPacket{
-			resp:          c1,
-			respdup:       new(bytes.Buffer),
-			request:       r1,
-			reqBody:       body1,
-			done:          make(chan bool),
-			key:           "longpoll_test_key",
-			requestSerial: 1,
+			resp:    c1,
+			respdup: new(bytes.Buffer),
+			request: r1,
+			done:    make(chan bool),
+			key:     "longpoll_test_key",
+			SerReq: SerReq{
+				reqBody:       body1,
+				requestSerial: 1,
+			},
 		}
 
 		lp.ab2lp <- pack1
-		select {
-		case <-pack1.done:
-			// good
-		case <-time.After(1 * time.Second):
-			panic("should have had pack1 be done by now -- if re-ordering is in effect")
-		}
+
+		// we won't get pack1 back immediately, but we will get pack2 back,
+		// since it was sent first.
+		/*
+			select {
+			case <-pack1.done:
+				// good
+				po("got back pack1.done")
+			case <-time.After(1 * time.Second):
+				dn.hist.ShowHistory()
+				panic("should have had pack1 be done by now -- if re-ordering is in effect")
+			}
+		*/
+
 		select {
 		case <-pack2.done:
 			// good
+			po("got back pack2.done")
 		case <-time.After(1 * time.Second):
+			dn.hist.ShowHistory()
 			panic("should have had pack2 be done by now -- if re-ordering is in effect")
 		}
 
-		po("pack1 got back: '%s'", pack1.respdup.Bytes())
+		//po("pack1 got back: '%s'", pack1.respdup.Bytes())
 		po("pack2 got back: '%s'", pack2.respdup.Bytes())
 
 		dh := dn.hist.GetHistory()
+		dh.ShowHistory()
 
-		cv.So(len(dh.absorbHistory), cv.ShouldEqual, 2)
-		cv.So(len(dh.generateHistory), cv.ShouldEqual, 0)
+		cv.So(len(dh.absorbHistory), cv.ShouldEqual, 1)
+		cv.So(len(dh.generateHistory), cv.ShouldEqual, 1)
 
-		cv.So(dh.absorbHistory[0].what, cv.ShouldEqual, "1")
-		cv.So(dh.absorbHistory[1].what, cv.ShouldEqual, "2")
+		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "12")
 	})
 }
 

@@ -10,12 +10,12 @@ type tunnelPacket struct {
 	respdup *bytes.Buffer // duplicate resp here, to enable testing
 
 	request *http.Request
-	reqBody []byte
 	key     string // separate from body
 	done    chan bool
 
-	requestSerial int64 // order the sends with content by serial number
-	replySerial   int64 // order the replies by serial number. Empty replies get serial number -1.
+	replySerial int64 // order the replies by serial number. Empty replies get serial number -1.
+
+	SerReq
 }
 
 func NewTunnelPacket() *tunnelPacket {
@@ -23,4 +23,16 @@ func NewTunnelPacket() *tunnelPacket {
 		done: make(chan bool),
 	}
 	return p
+}
+
+func ToSerReq(pack *tunnelPacket) *SerReq {
+	return &SerReq{
+		reqBody:       pack.reqBody,
+		requestSerial: pack.requestSerial,
+	}
+}
+
+type SerReq struct {
+	reqBody       []byte
+	requestSerial int64 // order the sends with content by serial number
 }

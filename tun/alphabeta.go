@@ -752,12 +752,19 @@ func (s *Chaser) getNextSendSerNum() int64 {
 func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
 
 	//po("debug: DoRequestResponse called with dest: '%#v', key: '%s', and work: '%s'", s.dest, s.key, string(work))
+
+	// only assign serial numbers to client payload, not to internal zero-byte
+	// alpha/beta requests that are there just to give the server a reply medium.
+	reqSer := int64(-1)
+	if len(work) > 0 {
+		reqSer = s.getNextSendSerNum()
+	}
+
 	// assemble key + work into request
 	req := bytes.NewBuffer([]byte(s.key))
 
-	serial := s.getNextSendSerNum()
-	serBy := SerialToBytes(serial)
-	po("debug: serial = %d", serial)
+	serBy := SerialToBytes(reqSerial)
+	po("debug: serial = %d", reqSerial)
 
 	req.Write(serBy) // add seqnum after key
 
