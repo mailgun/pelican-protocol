@@ -37,15 +37,30 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	up.Start()
 	defer up.Stop()
 
-	cv.Convey("Previous test was for request order, this is for reply order: Given that replies can arrive out of order (while the two http connection race), we should detect this and re-order replies into sequence.", t, func() {
+	cv.Convey("Previous test was for *request* mis-ordering management, this is for *reply* order preservation and coalescing: Given that replies can arrive out of order (while the two http connection race), we should detect this and re-order replies into sequence.", t, func() {
+
 		// test reply reorder:
 
+		// our test machinery here is pretty lame. Although we premute the serial numbers
+		// of the replies at the path from downstream to LittlePoll to AB, and this effectively
+		// simulates reply mis-ordering, it is still weak: on the first half of the trip from Up -> Down
+		// there is no mis-ordering, so unless we sleep alot in between packets, we often get
+		// different orders and coalescing based on the front path coalescing implemented in LP.
+		// Hence aren't actually testing the coalesing on the reply side,
+		// and instead can see artifacts from coalescing on the request side. As a result  we must
+		// endure a bunch of sleeps in between to prevent request coalescing from messing with us
+		// while testing the reply coalescing. Cest la vie.
+
 		up.Gen([]byte{'5'})
+		time.Sleep(time.Second)
 		up.Gen([]byte{'1'})
+		time.Sleep(time.Second)
 		up.Gen([]byte{'3'})
+		time.Sleep(time.Second)
 		up.Gen([]byte{'2'})
+		time.Sleep(time.Second)
 		up.Gen([]byte{'4'})
-		time.Sleep(2000 * time.Millisecond)
+		time.Sleep(time.Second)
 
 		uh := up.hist.GetHistory()
 

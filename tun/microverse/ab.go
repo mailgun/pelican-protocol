@@ -694,7 +694,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		return
 	}
 
-	select {
+	select { // hang here
 	case pack := <-s.lp2ab:
 		fmt.Printf("pack.respdup = %p\n", pack.respdup)
 		body := pack.respdup.Bytes()
