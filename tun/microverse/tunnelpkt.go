@@ -17,3 +17,10 @@ type tunnelPacket struct {
 	requestSerial int64 // order the sends with content by serial number
 	replySerial   int64 // order the replies by serial number. Empty replies get serial number -1.
 }
+
+func NewTunnelPacket() *tunnelPacket {
+	p := &tunnelPacket{
+		done: make(chan bool),
+	}
+	return p
+}

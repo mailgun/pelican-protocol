@@ -288,6 +288,13 @@ type tunnelPacket struct {
 	replySerial   int64 // order the replies by serial number. Empty replies get serial number -1.
 }
 
+func NewTunnelPacket() *tunnelPacket {
+	p := &tunnelPacket{
+		done: make(chan bool),
+	}
+	return p
+}
+
 // print out shortcut
 func po(format string, a ...interface{}) {
 	if Verbose {

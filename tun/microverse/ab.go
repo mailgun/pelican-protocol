@@ -42,7 +42,7 @@ type Chaser struct {
 	lastActiveTm        time.Time
 	mutTimer            sync.Mutex
 
-	lp2ab chan []byte
+	lp2ab chan *tunnelPacket
 	ab2lp chan *tunnelPacket
 
 	tmLastRecv []time.Time
@@ -92,7 +92,7 @@ func NewChaser(
 	incoming chan []byte,
 	repliesHere chan []byte,
 	ab2lp chan *tunnelPacket,
-	lp2ab chan []byte) *Chaser {
+	lp2ab chan *tunnelPacket) *Chaser {
 
 	SetChaserConfigDefaults(&cfg)
 
@@ -645,6 +645,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	case s.ab2lp <- &tunnelPacket{
 		requestSerial: s.getNextSendSerNum(),
 		reqBody:       work,
+		done:          make(chan bool),
 	}:
 		s.NoteTmSent()
 
@@ -654,7 +655,8 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	}
 
 	select {
-	case back = <-s.lp2ab:
+	case pack := <-s.lp2ab:
+		back = pack.respdup.Bytes()
 		po("DoRequestResponse got from lp2ab: '%s'", string(back))
 		s.NoteTmRecv()
 	case <-s.reqStop:

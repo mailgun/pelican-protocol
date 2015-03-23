@@ -17,7 +17,7 @@ type LittlePoll struct {
 	down *Boundary
 
 	ab2lp chan *tunnelPacket
-	lp2ab chan []byte
+	lp2ab chan *tunnelPacket
 
 	recvCount int
 
@@ -26,21 +26,26 @@ type LittlePoll struct {
 
 	name string
 
-	key string // keep rw happy
+	key       string // keep rw happy
+	lastUseTm time.Time
+
+	nextReplySerial             int64
+	lastRequestSerialNumberSeen int64
 }
 
-func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan []byte) *LittlePoll {
+func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan *tunnelPacket) *LittlePoll {
 
 	s := &LittlePoll{
-		reqStop:    make(chan bool),
-		Done:       make(chan bool),
-		pollDur:    pollDur,
-		ab2lp:      ab2lp, // receive from "socks-proxy" (Chaser)
-		lp2ab:      lp2ab, // send to "socks-proxy" (Chaser)
-		down:       dn,    // the "web-server", downstream most boundary target.
-		tmLastSend: make([]time.Time, 0),
-		tmLastRecv: make([]time.Time, 0),
-		name:       "LittlePoll",
+		reqStop:         make(chan bool),
+		Done:            make(chan bool),
+		pollDur:         pollDur,
+		ab2lp:           ab2lp, // receive from "socks-proxy" (Chaser)
+		lp2ab:           lp2ab, // send to "socks-proxy" (Chaser)
+		down:            dn,    // the "web-server", downstream most boundary target.
+		tmLastSend:      make([]time.Time, 0),
+		tmLastRecv:      make([]time.Time, 0),
+		name:            "LittlePoll",
+		nextReplySerial: 1,
 	}
 
 	return s
@@ -128,6 +133,46 @@ func (s *LittlePoll) Start() error {
 				return true
 			}
 
+			oldest := waiters.PopRight()
+
+			po("%p LittlePoll sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", s, countForUpstream, waiters.Len())
+
+			if countForUpstream > 0 {
+				// last thing before the reply: append reply serial number, to allow
+				// correct ordering on the client end. But skip replySerialNumber
+				// addition if this is an empty packet, because there will be lots of those.
+				//
+				rs := s.getReplySerial()
+				rser := SerialToBytes(rs)
+				nw, err := oldest.resp.Write(rser)
+				if err != nil {
+					panic(err)
+				}
+				if nw != len(rser) {
+					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
+				}
+				nw, err = oldest.respdup.Write(rser)
+				if err != nil {
+					panic(err)
+				}
+				if nw != len(rser) {
+					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
+				}
+				oldest.replySerial = rs
+
+			} else {
+				oldest.replySerial = -1
+			}
+
+			close(oldest.done) // send reply!
+			countForUpstream = 0
+
+			if waiters.Empty() {
+				longPollTimeUp.Stop()
+			}
+			return true
+
+			/* new
 			select {
 			// in real code: send curReply on r, where
 			// r:= waiters.PeekRight()
@@ -147,6 +192,7 @@ func (s *LittlePoll) Start() error {
 				longPollTimeUp.Stop()
 			}
 			return true
+			*/
 		}
 
 		for {
@@ -162,10 +208,27 @@ func (s *LittlePoll) Start() error {
 
 			// Only receive if we have a waiting packet body to write to.
 			// Otherwise let the RecvFromDownCh() do the fixed size buffering.
-			case b500 := <-s.down.Generate:
+			case b500 := <-func() chan []byte {
+				if !waiters.Empty() {
+					return s.down.Generate // compare longpoller.go: return s.rw.RecvFromDownCh()
+				} else {
+					return nil
+				}
+			}():
+				if len(b500) > 0 {
+					s.lastUseTm = time.Now()
+				}
 				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'.\n", s, string(b500))
 
+				oldestReqPack := waiters.PeekRight()
+				_, err := oldestReqPack.resp.Write(b500)
+				if err != nil {
+					panic(err)
+				}
+				countForUpstream += int64(len(b500))
+
 				curReply = append(curReply, b500...)
+				countForUpstream += int64(len(b500))
 
 				if !sendReplyUpstream() {
 					return
@@ -226,7 +289,23 @@ func (s *LittlePoll) Start() error {
 				select {
 				case b500 := <-s.down.Generate:
 					po("%p  longpoller  <-s.rw.RecvFromDownCh() got b500='%s'\n", s, string(b500))
-					curReply = append(curReply, b500...)
+
+					oldest := waiters.PeekRight()
+
+					_, err := oldest.resp.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+					countForUpstream += int64(len(b500))
+
+					_, err = oldest.respdup.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+
+					// replacing
+					//curReply = append(curReply, b500...)
+					//countForUpstream += int64(len(b500))
 
 				case <-time.After(10 * time.Millisecond):
 					po("%p  after 10msec of extra s.rw.RecvFromDownCh() reads", s)
@@ -239,7 +318,7 @@ func (s *LittlePoll) Start() error {
 				// reply immediately under two conditions: there
 				// are bytes to send back upstream, or we have
 				// more than one of the alpha/beta parked here.
-				if len(curReply) > 0 || waiters.Len() > 1 {
+				if countForUpstream > 0 || waiters.Len() > 1 {
 					if !sendReplyUpstream() {
 						return
 					}
@@ -312,4 +391,12 @@ func (r *LittlePoll) ShowTmHistory() {
 		fmt.Printf("%s history: recv-to-recv elap: '%s'\n", r.name, r.tmLastRecv[i+1].Sub(r.tmLastRecv[i]))
 	}
 
+}
+
+func (s *LittlePoll) getReplySerial() int64 {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	v := s.nextReplySerial
+	s.nextReplySerial++
+	return v
 }

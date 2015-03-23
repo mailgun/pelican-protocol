@@ -13,7 +13,7 @@ func TestMicroverseSimABandLittlePollAlone043(t *testing.T) {
 	dn := NewBoundary("downstream")
 
 	ab2lp := make(chan *tunnelPacket)
-	lp2ab := make(chan []byte)
+	lp2ab := make(chan *tunnelPacket)
 
 	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 
@@ -76,7 +76,7 @@ func TestMicroverseShutdownCleanly044(t *testing.T) {
 		dn := NewBoundary("downstream")
 
 		ab2lp := make(chan *tunnelPacket)
-		lp2ab := make(chan []byte)
+		lp2ab := make(chan *tunnelPacket)
 
 		lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 
@@ -111,7 +111,7 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 	dn := NewBoundary("downstream")
 
 	ab2lp := make(chan *tunnelPacket)
-	lp2ab := make(chan []byte)
+	lp2ab := make(chan *tunnelPacket)
 
 	longPollDur := 2 * time.Second
 	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
