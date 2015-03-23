@@ -36,6 +36,12 @@ type LittlePoll struct {
 	// save misordered requests here, to play
 	// them back in the right order.
 	misorderedRequests map[int64]*SerReq
+
+	// test reply packet re-ordering in AB by letting
+	// the test request a re-numbering of the reply packets.
+	// consumed until no more available, forceReplySn should
+	// supply the serial numbers to be assigned replies.
+	forceReplySn []int64
 }
 
 func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan *tunnelPacket) *LittlePoll {
@@ -518,5 +524,15 @@ func (s *LittlePoll) getReplySerial() int64 {
 	defer s.mut.Unlock()
 	v := s.nextReplySerial
 	s.nextReplySerial++
+
+	if len(s.forceReplySn) > 0 && v <= int64(len(s.forceReplySn)) {
+		return s.forceReplySn[v-1] // v starts at 1
+	}
+
 	return v
+}
+
+func (s *LittlePoll) SetReplySerialReordering(neworder []int64) {
+	// set the serial number permutation
+	s.forceReplySn = neworder
 }
