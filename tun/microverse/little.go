@@ -187,7 +187,8 @@ func (s *LittlePoll) Start() error {
 			close(oldest.done) // send reply!
 
 			// little only -- this actually does the send reply in the microverse.
-			select {
+			po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()), countForUpstream, oldest.requestSerial)
+			select { // hung here
 			case s.lp2ab <- oldest:
 				//okay
 			case <-s.reqStop:
