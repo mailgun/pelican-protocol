@@ -101,8 +101,8 @@ func TestRequestMisorderingsAreCorrected046(t *testing.T) {
 		dh := dn.hist.GetHistory()
 		dh.ShowHistory()
 
-		cv.So(len(dh.absorbHistory), cv.ShouldEqual, 1)
-		cv.So(len(dh.generateHistory), cv.ShouldEqual, 1)
+		cv.So(dh.CountAbsorbs(), cv.ShouldEqual, 1)
+		cv.So(dh.CountGenerates(), cv.ShouldEqual, 0)
 
 		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "12")
 	})
