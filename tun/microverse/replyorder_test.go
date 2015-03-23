@@ -17,7 +17,7 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	ab2lp := make(chan *tunnelPacket)
 	lp2ab := make(chan *tunnelPacket)
 
-	longPollDur := 500 * time.Millisecond
+	longPollDur := 500 * time.Minute
 	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
 	lp.SetReplySerialReordering([]int64{5, 1, 3, 2, 4})
 
@@ -34,7 +34,6 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	ab.Start()
 	defer ab.Stop()
 
-	up.SendEvery(1 * time.Second)
 	up.Start()
 	defer up.Stop()
 
@@ -46,7 +45,7 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 		up.Gen([]byte{'3'})
 		up.Gen([]byte{'2'})
 		up.Gen([]byte{'4'})
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2000 * time.Millisecond)
 
 		uh := up.hist.GetHistory()
 
@@ -55,9 +54,17 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 		cv.So(uh.CountAbsorbs(), cv.ShouldEqual, 3)
 		cv.So(uh.CountGenerates(), cv.ShouldEqual, 5)
 
-		cv.So(string(uh.absorbHistory[0].what), cv.ShouldEqual, "1")
-		cv.So(string(uh.absorbHistory[1].what), cv.ShouldEqual, "23")
-		cv.So(string(uh.absorbHistory[2].what), cv.ShouldEqual, "45")
+		expected := []string{"..downstream echo of ('1')..", "..downstream echo of ('2')....downstream echo of ('3')..", "..downstream echo of ('4')....downstream echo of ('5').."}
+		j := 0
+		for i := 0; i < len(uh.absorbHistory); i++ {
+			if uh.absorbHistory[i] != nil && !uh.absorbHistory[i].when.IsZero() {
+				cv.So(string(uh.absorbHistory[i].what), cv.ShouldEqual, expected[j])
+				j++
+				if j == 3 {
+					break
+				}
+			}
+		}
 
 	})
 }
