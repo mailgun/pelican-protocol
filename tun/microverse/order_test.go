@@ -214,7 +214,7 @@ func TestFiveRequestMisorderingsAreCorrected049(t *testing.T) {
 
 		SendHelper(lp.ab2lp, 4) // should get '45' together
 
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // if you don't get enough absorbs, increase.
 
 		dh := dn.hist.GetHistory()
 		dh.ShowHistory()
@@ -223,8 +223,8 @@ func TestFiveRequestMisorderingsAreCorrected049(t *testing.T) {
 		cv.So(dh.CountGenerates(), cv.ShouldEqual, 0)
 
 		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "1")
-		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "23")
-		cv.So(string(dh.absorbHistory[0].what), cv.ShouldEqual, "45")
+		cv.So(string(dh.absorbHistory[1].what), cv.ShouldEqual, "23")
+		cv.So(string(dh.absorbHistory[2].what), cv.ShouldEqual, "45")
 
 		po("done with order_test")
 	})
