@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -254,7 +255,7 @@ func (s *Chaser) startAlpha() {
 				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("%p alpha DoRequestResponse done work:'%s' -> '%s'. with recvSerail: %d\n", s, string(work), string(replyBytes), recvSerial)
+			po("%p alpha DoRequestResponse done work:'%s' -> '%s'. with recvSerial: %d\n", s, string(work), string(replyBytes), recvSerial)
 
 			// if Beta is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
@@ -641,12 +642,18 @@ func (home *ClientHome) LocalSendLatencyHistory() []int64 {
 
 func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
 
-	select {
-	case s.ab2lp <- &tunnelPacket{
+	pack := &tunnelPacket{
 		requestSerial: s.getNextSendSerNum(),
 		reqBody:       work,
 		done:          make(chan bool),
-	}:
+
+		resp:    NewMockResponseWriter(),
+		respdup: new(bytes.Buffer),
+	}
+	po("%p Chaser.DoRequestResponse() about to initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, pack.requestSerial, string(pack.reqBody))
+
+	select {
+	case s.ab2lp <- pack:
 		s.NoteTmSent()
 
 	case <-s.reqStop:
@@ -656,8 +663,20 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 
 	select {
 	case pack := <-s.lp2ab:
-		back = pack.respdup.Bytes()
-		po("DoRequestResponse got from lp2ab: '%s'", string(back))
+		fmt.Printf("pack.respdup = %p\n", pack.respdup)
+		body := pack.respdup.Bytes()
+
+		recvSerial = -1 // default for empty bytes in body
+		if len(body) >= SerialLen {
+			// if there are any bytes, then the replySerial number will be the last 8
+			serStart := len(body) - SerialLen
+			recvSerial = BytesToSerial(body[serStart:])
+			body = body[:serStart]
+		}
+
+		back = body
+
+		po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(body), recvSerial)
 		s.NoteTmRecv()
 	case <-s.reqStop:
 		po("Chaser reqStop before lp2ab reply received")

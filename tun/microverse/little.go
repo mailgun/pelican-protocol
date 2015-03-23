@@ -137,6 +137,10 @@ func (s *LittlePoll) Start() error {
 
 			po("%p LittlePoll sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", s, countForUpstream, waiters.Len())
 
+			if countForUpstream != int64(len(oldest.respdup.Bytes())) {
+				panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.respdup.Bytes(): %d == countForUpstream != len(oldest.respdup.Bytes()) == %d", countForUpstream, len(oldest.respdup.Bytes())))
+			}
+
 			if countForUpstream > 0 {
 				// last thing before the reply: append reply serial number, to allow
 				// correct ordering on the client end. But skip replySerialNumber
@@ -151,6 +155,11 @@ func (s *LittlePoll) Start() error {
 				if nw != len(rser) {
 					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
 				}
+
+				if countForUpstream != int64(len(oldest.respdup.Bytes())) {
+					panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.respdup.Bytes(): %d == countForUpstream != len(oldest.respdup.Bytes()) == %d", countForUpstream, len(oldest.respdup.Bytes())))
+				}
+
 				nw, err = oldest.respdup.Write(rser)
 				if err != nil {
 					panic(err)
@@ -165,6 +174,16 @@ func (s *LittlePoll) Start() error {
 			}
 
 			close(oldest.done) // send reply!
+
+			// little only -- this actually does the send reply in the microverse.
+			select {
+			case s.lp2ab <- oldest:
+				//okay
+			case <-s.reqStop:
+				// shutting down
+				return false
+			}
+
 			countForUpstream = 0
 
 			if waiters.Empty() {
@@ -218,17 +237,20 @@ func (s *LittlePoll) Start() error {
 				if len(b500) > 0 {
 					s.lastUseTm = time.Now()
 				}
-				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'.\n", s, string(b500))
 
 				oldestReqPack := waiters.PeekRight()
+				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack.respdup.Bytes() = '%s'\n", s, string(b500), string(oldestReqPack.respdup.Bytes()))
+
 				_, err := oldestReqPack.resp.Write(b500)
 				if err != nil {
 					panic(err)
 				}
 				countForUpstream += int64(len(b500))
 
-				curReply = append(curReply, b500...)
-				countForUpstream += int64(len(b500))
+				_, err = oldestReqPack.respdup.Write(b500)
+				if err != nil {
+					panic(err)
+				}
 
 				if !sendReplyUpstream() {
 					return
@@ -302,10 +324,6 @@ func (s *LittlePoll) Start() error {
 					if err != nil {
 						panic(err)
 					}
-
-					// replacing
-					//curReply = append(curReply, b500...)
-					//countForUpstream += int64(len(b500))
 
 				case <-time.After(10 * time.Millisecond):
 					po("%p  after 10msec of extra s.rw.RecvFromDownCh() reads", s)
