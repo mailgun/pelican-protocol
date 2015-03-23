@@ -41,11 +41,11 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	cv.Convey("Previous test was for request order, this is for reply order: Given that replies can arrive out of order (while the two http connection race), we should detect this and re-order replies into sequence.", t, func() {
 		// test reply reorder:
 
-		up.Gen([]byte{5})
-		up.Gen([]byte{1})
-		up.Gen([]byte{3})
-		up.Gen([]byte{2})
-		up.Gen([]byte{4})
+		up.Gen([]byte{'5'})
+		up.Gen([]byte{'1'})
+		up.Gen([]byte{'3'})
+		up.Gen([]byte{'2'})
+		up.Gen([]byte{'4'})
 		time.Sleep(10 * time.Millisecond)
 
 		uh := up.hist.GetHistory()

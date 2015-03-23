@@ -763,8 +763,8 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	// assemble key + work into request
 	req := bytes.NewBuffer([]byte(s.key))
 
-	serBy := SerialToBytes(reqSerial)
-	po("debug: serial = %d", reqSerial)
+	serBy := SerialToBytes(reqSer)
+	po("debug: serial = %d", reqSer)
 
 	req.Write(serBy) // add seqnum after key
 

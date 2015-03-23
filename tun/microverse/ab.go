@@ -54,6 +54,8 @@ type Chaser struct {
 
 	nextSendSerialNumber     int64
 	lastRecvSerialNumberSeen int64
+
+	misorderedReplies map[int64]*SerResp
 }
 
 type ChaserConfig struct {
@@ -122,6 +124,7 @@ func NewChaser(
 		hist:                 NewHistoryLog("Chaser"),
 		name:                 "Chaser",
 		nextSendSerialNumber: 1,
+		misorderedReplies:    make(map[int64]*SerResp),
 	}
 
 	// always closed
@@ -249,25 +252,34 @@ func (s *Chaser) startAlpha() {
 			// request-response cycle here
 			// ================================
 
-			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
 			replyBytes, recvSerial, err := s.DoRequestResponse(work, "")
 			if err != nil {
 				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
 				return
 			}
-			po("%p alpha DoRequestResponse done work:'%s' -> '%s'. with recvSerial: %d\n", s, string(work), string(replyBytes), recvSerial)
+			po("%p alpha DoRequestResponse done; recvSerial = %d.\n", s, recvSerial)
 
-			// if Beta is here, tell him to head out.
+			// if Alpha is here, tell him to head out.
 			s.home.alphaArrivesHome <- true
 
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
 
+				by := bytes.NewBuffer(replyBytes)
+
+				tryMe := recvSerial + 1
+				for {
+					if !s.addIfPresent(&tryMe, by) {
+						break
+					}
+				}
+				sendMe := by.Bytes()
+
 				// deliver any response data (body) to our client, but only
 				// bother if len(replyBytes) > 0, as checked above.
 				select {
-				case s.repliesHere <- replyBytes:
-					po("*p Alpha sent to repliesHere: '%s'", string(replyBytes))
+				case s.repliesHere <- sendMe:
+					po("*p Alpha sent to repliesHere: '%s'", string(sendMe))
 				case <-s.reqStop:
 					//po("%p Alpha got s.reqStop", s)
 					return
@@ -351,9 +363,21 @@ func (s *Chaser) startBeta() {
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
 
-				// deliver any response data (body) to our client
+				by := bytes.NewBuffer(replyBytes)
+
+				tryMe := recvSerial + 1
+				for {
+					if !s.addIfPresent(&tryMe, by) {
+						break
+					}
+				}
+				sendMe := by.Bytes()
+
+				// deliver any response data (body) to our client, but only
+				// bother if len(replyBytes) > 0, as checked above.
 				select {
-				case s.repliesHere <- replyBytes:
+				case s.repliesHere <- sendMe:
+					po("*p Beta sent to repliesHere: '%s'", string(sendMe))
 				case <-s.reqStop:
 					//po("%p Beta got s.reqStop", s)
 					return
@@ -693,8 +717,19 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	}
 
 	if recvSerial >= 0 {
+		// adjust s.lastRecvSerialNumberSeen and s.misorderedReplies under lock
+		s.mut.Lock()
+		defer s.mut.Unlock()
+
 		if recvSerial != s.lastRecvSerialNumberSeen+1 {
-			panic(fmt.Sprintf("recvSerial =%d but s.lastRecvSerialNumberSeen = %d which is not one less", recvSerial, s.lastRecvSerialNumberSeen))
+
+			s.misorderedReplies[recvSerial] = &SerResp{
+				response:       back,
+				responseSerial: recvSerial,
+				tm:             time.Now(),
+			}
+			// wait to send upstream: indicate this by giving back 0 length.
+			back = back[:0]
 		} else {
 			s.lastRecvSerialNumberSeen++
 		}
@@ -766,4 +801,32 @@ func (s *Chaser) getNextSendSerNum() int64 {
 	v := s.nextSendSerialNumber
 	s.nextSendSerialNumber++
 	return v
+}
+
+// Helper for startAlpha/startBeta;
+// returns true iff we found and deleted tryMe from the s.misorderedReplies map.
+//  Along with the delete we write the contents of the found.response to 'by'.
+func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	ooo, ok := s.misorderedReplies[*tryMe]
+
+	if !ok {
+		return false
+	}
+	po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
+		*tryMe, string(ooo.response))
+	by.Write(ooo.response)
+	delete(s.misorderedReplies, *tryMe)
+	s.lastRecvSerialNumberSeen = *tryMe
+	(*tryMe)++
+
+	return true
+}
+
+type SerResp struct {
+	response       []byte
+	responseSerial int64 // order the sends with content by serial number
+	tm             time.Time
 }
