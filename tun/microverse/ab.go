@@ -55,6 +55,8 @@ type Chaser struct {
 	nextSendSerialNumber     int64
 	lastRecvSerialNumberSeen int64
 
+	responseBack chan *ReqRep
+
 	misorderedReplies map[int64]*SerResp
 }
 
@@ -125,6 +127,7 @@ func NewChaser(
 		name:                 "Chaser",
 		nextSendSerialNumber: 1,
 		misorderedReplies:    make(map[int64]*SerResp),
+		responseBack:         make(chan *ReqRep),
 	}
 
 	// always closed
@@ -235,6 +238,11 @@ func (s *Chaser) startAlpha() {
 				case <-s.inactiveTimer.C:
 					po("%p alpha got <-s.inactiveTimer.C, after %v: returning/shutting down.", s, s.shutdownInactiveDur)
 					return
+
+					// responses back from the DoRequestResponse goroutine
+				case doneRR := <-s.responseBack:
+					s.handleDoneRR(doneRR, Alpha)
+
 				}
 			}
 
@@ -253,48 +261,11 @@ func (s *Chaser) startAlpha() {
 			// ================================
 
 			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
-			replyBytes, recvSerial, err := s.DoRequestResponse(work, "")
-			if err != nil {
-				po("%p alpha aborting on error from DoRequestResponse: '%s'", s, err)
-				return
-			}
-			po("%p alpha DoRequestResponse done work:'%s' -> '%s'. with recvSerial: %d\n", s, string(work), string(replyBytes), recvSerial)
+			rr := NewReqRep()
+			urlPath := ""
+			rr.DoRequestResponse(work, urlPath, s) // starts its own goroutine
 
-			// if Beta is here, tell him to head out.
-			s.home.alphaArrivesHome <- true
-
-			if len(replyBytes) > 0 {
-				s.ResetActiveTimer()
-
-				sendMe := replyBytes
-
-				by := bytes.NewBuffer(replyBytes)
-
-				tryMe := recvSerial + 1
-				for {
-					ooo, ok := s.misorderedReplies[tryMe]
-					if !ok {
-						break
-					}
-					po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
-						tryMe, string(ooo.response))
-					by.Write(ooo.response)
-					delete(s.misorderedReplies, tryMe)
-					s.lastRecvSerialNumberSeen = tryMe
-					tryMe++
-					sendMe = by.Bytes()
-				}
-				// deliver any response data (body) to our client, but only
-				// bother if len(replyBytes) > 0, as checked above.
-				select {
-				case s.repliesHere <- sendMe:
-					po("*p Alpha sent to repliesHere: '%s'", string(sendMe))
-				case <-s.reqStop:
-					//po("%p Alpha got s.reqStop", s)
-					return
-				}
-			}
-		}
+		} // end for
 	}()
 }
 
@@ -345,6 +316,10 @@ func (s *Chaser) startBeta() {
 						// don't block on it through, go ahead with empty data
 						// if we don't have any.
 					}
+
+					// responses back from the DoRequestResponse goroutine
+				case doneRR := <-s.responseBack:
+					s.handleDoneRR(doneRR, Beta)
 				}
 			}
 
@@ -355,6 +330,18 @@ func (s *Chaser) startBeta() {
 			// send request to server
 			s.home.betaDepartsHome <- true
 
+			// ================================
+			// request-response cycle here
+			// ================================
+
+			po("%p alpha about to call DoRequestResponse('%s')", s, string(work))
+			rr := NewReqRep()
+			urlPath := ""
+			rr.DoRequestResponse(work, urlPath, s) // starts its own goroutine
+
+		} // end for
+
+		/*
 			// ================================
 			// request-response cycle here
 			// ================================
@@ -377,18 +364,12 @@ func (s *Chaser) startBeta() {
 
 				tryMe := recvSerial + 1
 				for {
-					ooo, ok := s.misorderedReplies[tryMe]
-					if !ok {
+					if !s.addIfPresent(&tryMe, by) {
 						break
 					}
-					po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
-						tryMe, string(ooo.response))
-					by.Write(ooo.response)
-					delete(s.misorderedReplies, tryMe)
-					s.lastRecvSerialNumberSeen = tryMe
-					tryMe++
 					sendMe = by.Bytes()
 				}
+
 				// deliver any response data (body) to our client, but only
 				// bother if len(replyBytes) > 0, as checked above.
 				select {
@@ -399,7 +380,8 @@ func (s *Chaser) startBeta() {
 					return
 				}
 			}
-		}
+		*/
+
 	}()
 }
 
@@ -413,6 +395,18 @@ type who int
 const Alpha who = 1
 const Beta who = 2
 const Both who = 3
+
+func (w who) String() string {
+	switch w {
+	case Alpha:
+		return "Alpha"
+	case Beta:
+		return "Beta"
+	case Both:
+		return "Both"
+	}
+	panic(fmt.Sprintf("unknown who: %d", int(w)))
+}
 
 type ClientHome struct {
 	reqStop chan bool
@@ -680,70 +674,116 @@ func (home *ClientHome) LocalSendLatencyHistory() []int64 {
 	return home.latencyHistory
 }
 
-func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
+type ReqRep struct {
+	Done chan bool
 
-	// only assign serial numbers to client payload, not to internal zero-byte
-	// alpha/beta requests that are there just to give the server a reply medium.
-	reqSer := int64(-1)
-	if len(work) > 0 {
-		reqSer = s.getNextSendSerNum()
+	work []byte
+	// data items returned in a response
+	back       []byte
+	recvSerial int64
+	err        error
+}
+
+func NewReqRep() *ReqRep {
+	r := &ReqRep{
+		Done: make(chan bool),
 	}
+	return r
+}
 
-	pack := &tunnelPacket{
-		SerReq: SerReq{
-			requestSerial: reqSer,
-			reqBody:       work,
-		},
-		done: make(chan bool),
+/* use:
+rr := NewReqRep()
+rr.DoRequestResponse(work, urlPath, s) // starts its own goroutine
+...
+case doneRR := <-chaser.responseBack:
+...
+*/
+// DoRequestResponse is invoked by both Alpha and Beta and it
+// may update chase.misorderedReplies as well as (once rr.Done is closed), the
+// members rr.back, rr.recvSpecial, and rr.err. If the reply is out
+// of order and stored in chase.misorderedReplies, then len(rr.back) will be 0.
+//
+// When finish, DoRequestReponse will send rr on the channel chase.responseBack
+func (rr *ReqRep) DoRequestResponse(work []byte, urlPath string, chaser *Chaser) {
+	go func() {
+		defer func() {
+			if chaser.responseBack != nil {
+				select {
+				case chaser.responseBack <- rr:
+					//notify chaser we have a response
+				case <-chaser.reqStop:
+					//case <-time.After(time.Minute):
+				}
+			}
+			close(rr.Done)
+		}()
+		rr.work = work // for debug prints, otherwise not needed. (may help gc to delete this field).
 
-		resp:    NewMockResponseWriter(),
-		respdup: new(bytes.Buffer),
-	}
-	po("%p Chaser.DoRequestResponse() about to initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, pack.requestSerial, string(pack.reqBody))
-
-	select {
-	case s.ab2lp <- pack:
-		s.NoteTmSent()
-
-	case <-s.reqStop:
-		po("Chaser reqStop before ab2lp request to lp issued")
-		return
-	}
-
-	select {
-	case pack := <-s.lp2ab:
-		fmt.Printf("pack.respdup = %p\n", pack.respdup)
-		body := pack.respdup.Bytes()
-
-		recvSerial = -1 // default for empty bytes in body
-		if len(body) >= SerialLen {
-			// if there are any bytes, then the replySerial number will be the last 8
-			serStart := len(body) - SerialLen
-			recvSerial = BytesToSerial(body[serStart:])
-			body = body[:serStart]
+		// only assign serial numbers to client payload, not to internal zero-byte
+		// alpha/beta requests that are there just to give the server a reply medium.
+		reqSer := int64(-1)
+		if len(work) > 0 {
+			reqSer = chaser.getNextSendSerNum()
 		}
 
-		back = body
+		sendPack := &tunnelPacket{
+			SerReq: SerReq{
+				requestSerial: reqSer,
+				reqBody:       work,
+				tm:            time.Now(),
+			},
+			done: make(chan bool),
 
-		po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(body), recvSerial)
-		s.NoteTmRecv()
-	case <-s.reqStop:
-		po("Chaser reqStop before lp2ab reply received")
-		return
-	}
-
-	if recvSerial >= 0 {
-		if recvSerial != s.lastRecvSerialNumberSeen+1 {
-			s.misorderedReplies[recvSerial] = &SerResp{response: back, responseSerial: recvSerial}
-
-			// wait to send upstream: indicate this by giving back 0 length.
-			back = back[:0]
-		} else {
-			s.lastRecvSerialNumberSeen++
+			resp:    NewMockResponseWriter(),
+			respdup: new(bytes.Buffer),
 		}
-	}
+		po("%p Chaser.DoRequestResponse() about to initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", chaser, sendPack.requestSerial, string(sendPack.reqBody))
 
-	return
+		select {
+		case chaser.ab2lp <- sendPack:
+			chaser.NoteTmSent()
+
+		case <-chaser.reqStop:
+			po("Chaser reqStop before ab2lp request to lp issued")
+			return
+		}
+
+		select {
+		case pack := <-chaser.lp2ab:
+			fmt.Printf("pack.respdup = %p\n", pack.respdup)
+			body := pack.respdup.Bytes()
+
+			if len(body) >= SerialLen {
+				// if there are any bytes, then the replySerial number will be the last 8
+				serStart := len(body) - SerialLen
+				rr.recvSerial = BytesToSerial(body[serStart:])
+				body = body[:serStart]
+			} else {
+				rr.recvSerial = -1 // default for empty bytes in body
+			}
+
+			rr.back = body
+
+			po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(body), rr.recvSerial)
+			chaser.NoteTmRecv()
+		case <-chaser.reqStop:
+			po("Chaser reqStop before lp2ab reply received")
+			return
+		}
+
+		if rr.recvSerial >= 0 {
+			chaser.mut.Lock() // protect our adjustment of chaser.lastRecvSerialNumberSeen and misorderedReplies
+			defer chaser.mut.Unlock()
+			if rr.recvSerial != chaser.lastRecvSerialNumberSeen+1 {
+				chaser.misorderedReplies[rr.recvSerial] = &SerResp{response: rr.back, responseSerial: rr.recvSerial, tm: time.Now()}
+				// wait to send upstream: indicate this by giving back 0 length.
+				rr.back = rr.back[:0]
+				rr.err = fmt.Errorf("out-of-order")
+			} else {
+				chaser.lastRecvSerialNumberSeen++
+			}
+		}
+	}()
 }
 
 /// logging
@@ -809,4 +849,68 @@ func (s *Chaser) getNextSendSerNum() int64 {
 	v := s.nextSendSerialNumber
 	s.nextSendSerialNumber++
 	return v
+}
+
+// Helper for startAlpha/startBeta;
+// returns true iff we found and deleted tryMe from the s.misorderedReplies map.
+//  Along with the delete we write the contents of the found.response to 'by'.
+func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	ooo, ok := s.misorderedReplies[*tryMe]
+
+	if !ok {
+		return false
+	}
+	po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
+		*tryMe, string(ooo.response))
+	by.Write(ooo.response)
+	delete(s.misorderedReplies, *tryMe)
+	s.lastRecvSerialNumberSeen = *tryMe
+	(*tryMe)++
+
+	return true
+}
+
+func (s *Chaser) handleDoneRR(doneRR *ReqRep, whoAb who) {
+	po("%p %s DoRequestResponse done work:'%s' -> '%s'. with recvSerial: %d\n",
+		s, whoAb, string(doneRR.work), string(doneRR.back), doneRR.recvSerial)
+
+	if whoAb == Alpha {
+		// if Beta is here, tell him to head out.
+		s.home.alphaArrivesHome <- true
+	} else {
+		// if Alpha is here, tell him to head out.
+		s.home.betaArrivesHome <- true
+	}
+
+	// if len(doneRR.back) == 0, then may be a poll return, or maybe a
+	// misordered packet.
+	if len(doneRR.back) > 0 {
+		s.ResetActiveTimer()
+
+		sendMe := doneRR.back
+
+		by := bytes.NewBuffer(doneRR.back)
+
+		// look for misordered packet that can now be delivered
+		// by appending to by inside addIfPresent()
+		tryMe := doneRR.recvSerial + 1
+		for {
+			if !s.addIfPresent(&tryMe, by) {
+				break
+			}
+			sendMe = by.Bytes()
+		}
+		// deliver any response data (body) to our client, but only
+		// bother if len(replyBytes) > 0, as checked above.
+		select {
+		case s.repliesHere <- sendMe:
+			po("%p %s sent to repliesHere this payload: '%s'", s, whoAb, string(sendMe))
+		case <-s.reqStop:
+			//po("%p %s got s.reqStop", s, whoAb)
+			return
+		}
+	} // end if len(replyBytes) > 0
 }

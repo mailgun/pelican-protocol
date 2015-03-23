@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"net/http"
+	"time"
 )
 
 type tunnelPacket struct {
@@ -29,15 +30,18 @@ func ToSerReq(pack *tunnelPacket) *SerReq {
 	return &SerReq{
 		reqBody:       pack.reqBody,
 		requestSerial: pack.requestSerial,
+		tm:            time.Now(),
 	}
 }
 
 type SerReq struct {
 	reqBody       []byte
 	requestSerial int64 // order the sends with content by serial number
+	tm            time.Time
 }
 
 type SerResp struct {
 	response       []byte
 	responseSerial int64 // order the sends with content by serial number
+	tm             time.Time
 }

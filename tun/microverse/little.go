@@ -35,6 +35,8 @@ type LittlePoll struct {
 
 	// save misordered requests here, to play
 	// them back in the right order.
+	// As long as there is only one Start() goroutine,
+	// this is fine. If we add more, use *AtomicMapInt64SerReq instead.
 	misorderedRequests map[int64]*SerReq
 
 	// test reply packet re-ordering in AB by letting
@@ -130,8 +132,8 @@ func (s *LittlePoll) Start() error {
 
 		// set this to finish re-ordering a packet. Return to nil when
 		// done writing the re-ordered packet.
-		goesBefore := make([]*SerReq, 0)
-		//goesBeforeByteCount := int64(0)
+		coalescedSequence := make([]*SerReq, 0)
+		//coalescedSequenceByteCount := int64(0)
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LittlePoll, we read from the server
@@ -280,42 +282,7 @@ func (s *LittlePoll) Start() error {
 					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
 						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
 							pack.requestSerial, s.lastRequestSerialNumberSeen)
-						/*
-
-								// do we have previous value(s) that can fill the gap?
-								if len(goesBefore) > 0 || goesBeforeByteCount != 0 {
-									panic(fmt.Sprintf("at receive from ab, the len(goesBefore) should be zero (is %d), and the goesBeforeByteCount should be 0 (is %d)", len(goesBefore), goesBeforeByteCount))
-								}
-							recoverOutOfOrderCheck:
-								for i := s.lastRequestSerialNumberSeen + 1; i < pack.requestSerial; i++ {
-									ooo, ok := s.misorderedRequests[i]
-									if !ok {
-										break recoverOutOfOrderCheck
-									}
-									goesBefore = append(goesBefore, ooo)
-									goesBeforeByteCount += int64(len(ooo.reqBody))
-									// not yet: only once we sure: delete(s.misorderedRequests, i)
-								}
-
-								// done with any re-ordering into goesBefore slice, check if we
-								// can use pack.requestSerial now
-								n := len(goesBefore)
-								if n > 0 && goesBefore[n-1].requestSerial+1 == pack.requestSerial {
-									// we are back in order! (using goesBefore *before* pack)
-									for _, v := range goesBefore {
-										delete(s.misorderedRequests, v.requestSerial)
-									}
-									s.lastRequestSerialNumberSeen = pack.requestSerial
-									// remember to fill goesBefore before pack now.
-									goto doneWithOutOfOrderRecoveryCheck
-								} else {
-									// incomplete chain, start over.
-									goesBefore = goesBefore[:0]
-									goesBeforeByteCount = 0
-								}
-						*/
-						// pack.requestSerial is out of order, and we can't fill all
-						// the gaps
+						// pack.requestSerial is out of order
 
 						// sanity check
 						_, already := s.misorderedRequests[pack.requestSerial]
@@ -327,48 +294,50 @@ func (s *LittlePoll) Start() error {
 								panic(fmt.Sprintf("duplicate request number from the past: pack.requestSerial =%d < s.lastRequestSerialNumberSeen = %d", pack.requestSerial, s.lastRequestSerialNumberSeen))
 							}
 
+							// the main action in the event of misorder detection:
 							// store the misorder request until later, but still push onto waiters for replies.
 							s.misorderedRequests[pack.requestSerial] = ToSerReq(pack)
 							// length 0 the body so we don't forward downstream out-of-order now.
 							pack.reqBody = pack.reqBody[:0]
-							//goto doneWithOutOfOrderRecoveryCheck
 						}
 					} else {
 						s.lastRequestSerialNumberSeen = pack.requestSerial
 					}
-				}
+				} // end if pack.requestSerial > 0
 
-				//			doneWithOutOfOrderRecoveryCheck:
-
-				// reset timer. only hold this packet open for at most 'dur' time.
-				// since we will be replying to oldestReqPack (if any) immediately,
+				// Data or note, we reset the poll timer, so that we only hold
+				// this packet open on this end for at most 'dur' time.
+				// Since we will be replying to oldestReqPack (if any) immediately,
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
 
 				// we save the SerReq part of pack above, so we can send along the
-				// reply at any point. Here we do first-in-first-out.
+				// reply at any point. Thus (and become of this PushLeft) we do
+				// first-Request-in-first-Response-out, although obviously not
+				// necessarily waiting to transport the actual downstream response to any
+				// given request.
 				waiters.PushLeft(pack)
 
 				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.reqBody))
-
+				// Now:
 				// have to both send and receive
 
 				po("%p  just before s.rw.SendToDownCh()", s)
 
-				// we don't need to check if goesBeforeByteCount > 0, becuase it
+				// we don't need to check if coalescedSequenceByteCount > 0, becuase it
 				// will be > 0 iff len(pack.reqBody) is > 0.
 				if len(pack.reqBody) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 
 					// append pack to where it belongs
-					goesBefore = append(goesBefore, ToSerReq(pack))
+					coalescedSequence = append(coalescedSequence, ToSerReq(pack))
 
 					// *goes after* additions: check for any that can go in-order *after* pack
 					lookFor := pack.requestSerial + 1
 					for {
 						if ooo, ok := s.misorderedRequests[lookFor]; ok {
-							goesBefore = append(goesBefore, ooo)
+							coalescedSequence = append(coalescedSequence, ooo)
 							delete(s.misorderedRequests, lookFor)
 							s.lastRequestSerialNumberSeen = ooo.requestSerial
 							lookFor++
@@ -376,17 +345,17 @@ func (s *LittlePoll) Start() error {
 							break
 						}
 					}
-					// INVAR: goesBefore contains our buffers in order,
+					// coalescedSequence will contain our buffers in order
 
 					writeMe := pack.reqBody
 
 					// if we have more than pack, adjust writeMe to
 					// encompass all buffers that are ready to go in-order now.
-					if len(goesBefore) > 1 {
+					if len(coalescedSequence) > 1 {
 						// now concatenate all together for one send
 						var allTogether bytes.Buffer
-						for _, sendMe := range goesBefore {
-							allTogether.Write(sendMe.reqBody)
+						for _, v := range coalescedSequence {
+							allTogether.Write(v.reqBody)
 						}
 						writeMe = allTogether.Bytes()
 					}
@@ -408,8 +377,7 @@ func (s *LittlePoll) Start() error {
 						// finish processing this packet, don't return yet
 					}
 
-					goesBefore = goesBefore[:0]
-					//goesBeforeByteCount = 0
+					coalescedSequence = coalescedSequence[:0]
 				} // end if len(pack) > 0
 
 				po("%p  just after s.down.Absorb <- pack", s)

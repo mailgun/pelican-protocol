@@ -15,7 +15,7 @@ func TestMicroverseEchoWorks043(t *testing.T) {
 	ab2lp := make(chan *tunnelPacket)
 	lp2ab := make(chan *tunnelPacket)
 
-	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
+	lp := NewLittlePoll(50*time.Millisecond, dn, ab2lp, lp2ab)
 
 	up := NewBoundary("upstream")
 	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)

@@ -18,7 +18,7 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	lp2ab := make(chan *tunnelPacket)
 
 	// should see no long polls in this test
-	longPollDur := 1 * time.Hour
+	longPollDur := 20 * time.Second
 	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
 	lp.SetReplySerialReordering([]int64{5, 1, 3, 2, 4})
 
@@ -41,17 +41,25 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	cv.Convey("Previous test was for request order, this is for reply order: Given that replies can arrive out of order (while the two http connection race), we should detect this and re-order replies into sequence.", t, func() {
 		// test reply reorder:
 
+		// our test machinery here is pretty lame, since from Up -> Down there is no mis-ordering, so
+		// unless we sleep alot in between, we aren't actually testing the coalesing on the reply side,
+		// and instead can see artifacts from coalescing on the request side. So we endure a bunch of
+		// sleeps in between to prevent request coalescing from messing with us.
+
 		up.Gen([]byte{'5'})
+		time.Sleep(1000 * time.Millisecond)
 
 		up.Gen([]byte{'1'})
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 
 		up.Gen([]byte{'3'})
+		time.Sleep(1000 * time.Millisecond)
+
 		up.Gen([]byte{'2'})
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 
 		up.Gen([]byte{'4'})
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 
 		uh := up.hist.GetHistory()
 
@@ -84,6 +92,7 @@ func ReplyToAbHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 		SerReq: SerReq{
 			reqBody:       body,
 			requestSerial: serialNum,
+			tm:            time.Now(),
 		},
 	}
 

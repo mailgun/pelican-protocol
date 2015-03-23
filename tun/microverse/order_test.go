@@ -48,6 +48,7 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 			SerReq: SerReq{
 				reqBody:       body2,
 				requestSerial: 2,
+				tm:            time.Now(),
 			},
 		}
 
@@ -69,6 +70,7 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 			SerReq: SerReq{
 				reqBody:       body1,
 				requestSerial: 1,
+				tm:            time.Now(),
 			},
 		}
 
@@ -250,6 +252,7 @@ func SendHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 		SerReq: SerReq{
 			reqBody:       body2,
 			requestSerial: serialNum,
+			tm:            time.Now(),
 		},
 	}
 
