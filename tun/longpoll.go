@@ -64,6 +64,16 @@ type LongPoller struct {
 
 	nextReplySerial             int64
 	lastRequestSerialNumberSeen int64
+
+	// save misordered requests here, to play
+	// them back in the right order.
+	misorderedRequests map[int64]*SerReq
+
+	// test reply packet re-ordering in AB by letting
+	// the test request a re-numbering of the reply packets.
+	// consumed until no more available, forceReplySn should
+	// supply the serial numbers to be assigned replies.
+	forceReplySn []int64
 }
 
 // Make a new LongPoller as a part of the server (ReverseProxy is the server;
@@ -83,14 +93,15 @@ func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
 	dest.SetIpPort()
 
 	s := &LongPoller{
-		reqStop:           make(chan bool),
-		Done:              make(chan bool),
-		ClientPacketRecvd: make(chan *tunnelPacket),
-		key:               string(key),
-		Dest:              dest,
-		CloseKeyChan:      make(chan string),
-		pollDur:           pollDur,
-		nextReplySerial:   1,
+		reqStop:            make(chan bool),
+		Done:               make(chan bool),
+		ClientPacketRecvd:  make(chan *tunnelPacket),
+		key:                string(key),
+		Dest:               dest,
+		CloseKeyChan:       make(chan string),
+		pollDur:            pollDur,
+		nextReplySerial:    1,
+		misorderedRequests: make(map[int64]*SerReq),
 	}
 
 	return s
@@ -193,6 +204,10 @@ func (s *LongPoller) Start() error {
 
 			po("%p '%s' longpoller sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", s, skey, countForUpstream, waiters.Len())
 
+			if countForUpstream != int64(len(oldest.respdup.Bytes())) {
+				panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.respdup.Bytes(): %d == countForUpstream != len(oldest.respdup.Bytes()) == %d", countForUpstream, len(oldest.respdup.Bytes())))
+			}
+
 			if countForUpstream > 0 {
 				// last thing before the reply: append reply serial number, to allow
 				// correct ordering on the client end. But skip replySerialNumber
@@ -222,6 +237,13 @@ func (s *LongPoller) Start() error {
 
 			close(oldest.done) // send reply!
 			countForUpstream = 0
+
+			// debug
+			if oldest.replySerial >= 0 {
+				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.requestSerial)
+			} else {
+				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.requestSerial)
+			}
 
 			if waiters.Empty() {
 				longPollTimeUp.Stop()
@@ -267,23 +289,52 @@ func (s *LongPoller) Start() error {
 
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
+				s.NoteTmRecv()
+				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
+
 				if len(pack.reqBody) > 0 {
 					s.lastUseTm = time.Now()
 				}
 
 				po("%p '%s' longPoller got client packet! recvCount now: %d", s, skey, s.recvCount)
 
-				if pack.requestSerial >= 0 {
+				if pack.requestSerial > 0 {
+
 					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
-						panic(fmt.Sprintf("pack.requestSerial =%d but s.lastRequestSerialNumberSeen = %d which is not one less", pack.requestSerial, s.lastRequestSerialNumberSeen))
+						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
+							pack.requestSerial, s.lastRequestSerialNumberSeen)
+						// pack.requestSerial is out of order
+
+						// sanity check
+						_, already := s.misorderedRequests[pack.requestSerial]
+						if already {
+							panic(fmt.Sprintf("misordered request detected, but we already saw pack.requestSerial =%d. Misorder because s.lastRequestSerialNumberSeen = %d which is not one less than pack.requestSerial", pack.requestSerial, s.lastRequestSerialNumberSeen))
+						} else {
+							// sanity check that we aren't too far off
+							if pack.requestSerial < s.lastRequestSerialNumberSeen {
+								panic(fmt.Sprintf("duplicate request number from the past: pack.requestSerial =%d < s.lastRequestSerialNumberSeen = %d", pack.requestSerial, s.lastRequestSerialNumberSeen))
+							}
+
+							// the main action in the event of misorder detection:
+							// store the misorder request until later, but still push onto waiters for replies.
+							s.misorderedRequests[pack.requestSerial] = ToSerReq(pack)
+							// length 0 the body so we don't forward downstream out-of-order now.
+							pack.reqBody = pack.reqBody[:0]
+						}
 					} else {
-						s.lastRequestSerialNumberSeen++
+						s.lastRequestSerialNumberSeen = pack.requestSerial
 					}
-				}
-				// reset timer. only hold this packet open for at most 'dur' time.
-				// since we will be replying to oldestReqPack (if any) immediately,
+				} // end if pack.requestSerial > 0
+
+				// Data or note, we reset the poll timer, so that we only hold
+				// this packet open on this end for at most 'dur' time.
+				// Since we will be replying to oldestReqPack (if any) immediately,
 				// we can reset the timer to reflect pack's arrival.
 				longPollTimeUp.Reset(s.pollDur)
+
+				// ===================================
+				// got to here in the merge of little.go and longpoll.go
+				// ===================================
 
 				po("%p '%s' LongPoller, just received ClientPacket with pack.reqBody = '%s'\n", s, skey, string(pack.reqBody))
 

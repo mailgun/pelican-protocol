@@ -683,7 +683,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		resp:    NewMockResponseWriter(),
 		respdup: new(bytes.Buffer),
 	}
-	po("%p Chaser.DoRequestResponse() about to initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, pack.requestSerial, string(pack.reqBody))
+	po("%p Chaser.DoRequestResponse() about to do initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, pack.requestSerial, string(pack.reqBody))
 
 	select {
 	case s.ab2lp <- pack:
@@ -694,7 +694,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		return
 	}
 
-	select { // hang here
+	select {
 	case pack := <-s.lp2ab:
 		fmt.Printf("pack.respdup = %p\n", pack.respdup)
 		body := pack.respdup.Bytes()

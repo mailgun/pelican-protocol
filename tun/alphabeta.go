@@ -101,6 +101,8 @@ type Chaser struct {
 
 	nextSendSerialNumber     int64
 	lastRecvSerialNumberSeen int64
+
+	misorderedReplies map[int64]*SerResp
 }
 
 type ChaserConfig struct {
@@ -201,6 +203,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		shutdownInactiveDur:  cfg.ShutdownInactiveDur,
 		inactiveTimer:        time.NewTimer(cfg.ShutdownInactiveDur),
 		nextSendSerialNumber: 1,
+		misorderedReplies:    make(map[int64]*SerResp),
 	}
 
 	po("\n\n Chaser %p gets NewRW() = %p '%s' with %p NetConnReader and %p NetConnWriter. For conn = %s[remote] -> %s[local]\n\n", s, rw, rw.name, rw.r, rw.w, conn.RemoteAddr(), conn.LocalAddr())
@@ -399,9 +402,20 @@ func (s *Chaser) startAlpha() {
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
 
+				by := bytes.NewBuffer(replyBytes)
+
+				tryMe := recvSerial + 1
+				for {
+					if !s.addIfPresent(&tryMe, by) {
+						break
+					}
+				}
+				sendMe := by.Bytes()
+
 				// deliver any response data (body) to our client
 				select {
-				case s.repliesHere <- replyBytes:
+				case s.repliesHere <- sendMe:
+					po("%p Alpha sent to repliesHere: '%s'", s, string(sendMe))
 				case <-s.reqStop:
 					po("%p Alpha got s.reqStop", s)
 					return
@@ -485,11 +499,23 @@ func (s *Chaser) startBeta() {
 			if len(replyBytes) > 0 {
 				s.ResetActiveTimer()
 
-				// deliver any response data (body) to our client
+				by := bytes.NewBuffer(replyBytes)
+
+				tryMe := recvSerial + 1
+				for {
+					if !s.addIfPresent(&tryMe, by) {
+						break
+					}
+				}
+				sendMe := by.Bytes()
+
+				// deliver any response data (body) to our client, but only
+				// bother if len(replyBytes) > 0, as checked above.
 				select {
-				case s.repliesHere <- replyBytes:
+				case s.repliesHere <- sendMe:
+					po("%p Beta sent to repliesHere: '%s'", s, string(sendMe))
 				case <-s.reqStop:
-					po("%p Beta got s.reqStop", s)
+					//po("%p Beta got s.reqStop", s)
 					return
 				}
 			}
@@ -740,6 +766,7 @@ func (s *Chaser) getNextSendSerNum() int64 {
 	return v
 }
 
+// DoRequestResponse():
 // issue a post to the urlPath (omit the leading slash! deault to ""),
 // submitting 'work', returning 'back' and any error.
 // the urlPath should normally be "", but can be "closekey" to tell
@@ -770,15 +797,16 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 
 	req.Write(work) // add work after key + seqnum
 
-	po("in DoRequestResponse(url='%s') just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v\n", urlPath, string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout)
+	po("%p Chaser.DoRequestResponse(url='%s') just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v. requestSerial = %d\n", s, urlPath, string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout, reqSer)
 
 	url := "http://" + s.dest.IpPort + "/" + urlPath
 
 	//resp, err := http.Post(url, "application/octet-stream", req)
-
+	//
+	// preferred over http.Post() for its tunable timeouts:
 	resp, err := s.httpClient.Post(url, "application/octet-stream", req)
 
-	po("in DoRequestResponse(url='%s') just after Post. key = '%s'", urlPath, string(s.key[:5]))
+	po("%p '%s' Chaser.DoRequestResponse(url='%s') just after Post.", s, string(s.key[:5]), urlPath)
 
 	defer func() {
 		if resp != nil && resp.Body != nil {
@@ -806,12 +834,51 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	po("%p chaser '%s' / '%s', resp.Body = '%s'. With recvSerial = %d\n", s, s.key[:5], s.rw.name, string(body), recvSerial)
 
 	if recvSerial >= 0 {
+		// adjust s.lastRecvSerialNumberSeen and s.misorderedReplies under lock
+		s.mut.Lock()
+		defer s.mut.Unlock()
+
 		if recvSerial != s.lastRecvSerialNumberSeen+1 {
-			panic(fmt.Sprintf("recvSerial =%d but s.lastRecvSerialNumberSeen = %d which is not one less", recvSerial, s.lastRecvSerialNumberSeen))
+
+			s.misorderedReplies[recvSerial] = &SerResp{
+				response:       back,
+				responseSerial: recvSerial,
+				tm:             time.Now(),
+			}
+			// wait to send upstream: indicate this by giving back 0 length.
+			back = back[:0]
 		} else {
 			s.lastRecvSerialNumberSeen++
 		}
 	}
 
 	return body, recvSerial, err
+}
+
+// Helper for startAlpha/startBeta;
+// returns true iff we found and deleted tryMe from the s.misorderedReplies map.
+//  Along with the delete we write the contents of the found.response to 'by'.
+func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	ooo, ok := s.misorderedReplies[*tryMe]
+
+	if !ok {
+		return false
+	}
+	po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
+		*tryMe, string(ooo.response))
+	by.Write(ooo.response)
+	delete(s.misorderedReplies, *tryMe)
+	s.lastRecvSerialNumberSeen = *tryMe
+	(*tryMe)++
+
+	return true
+}
+
+type SerResp struct {
+	response       []byte
+	responseSerial int64 // order the sends with content by serial number
+	tm             time.Time
 }
