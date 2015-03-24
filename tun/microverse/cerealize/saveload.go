@@ -1,4 +1,4 @@
-package schema
+package cerealize
 
 import (
 	"io"
@@ -28,17 +28,22 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 	if dest == nil {
 		dest = &PelicanPacket{}
 	}
-	dest.ResponseSerial = int64(src.ResponseSerial())
-	dest.RequestSerial = int64(src.RequestSerial())
+	dest.RequestSer = int64(src.RequestSer())
+	dest.ResponseSer = int64(src.ResponseSer())
+	dest.Paysize = int64(src.Paysize())
+	dest.RequestAbTm = int64(src.RequestAbTm())
+	dest.RequestLpTm = int64(src.RequestLpTm())
+	dest.ResponseLpTm = int64(src.ResponseLpTm())
+	dest.ResponseAbTm = int64(src.ResponseAbTm())
 	dest.Key = src.Key()
 
 	var n int
 
-	// Mac
-	n = src.Mac().Len()
-	dest.Mac = make([]byte, n)
+	// Paymac
+	n = src.Paymac().Len()
+	dest.Paymac = make([]byte, n)
 	for i := 0; i < n; i++ {
-		dest.Mac[i] = byte(src.Mac().At(i))
+		dest.Paymac[i] = byte(src.Paymac().At(i))
 	}
 
 	// Payload
@@ -48,35 +53,31 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 		dest.Payload[i] = byte(src.Payload().At(i))
 	}
 
-	dest.RequestAbTm = int64(src.RequestAbTm())
-	dest.RequestLpTm = int64(src.RequestLpTm())
-	dest.ResponseLpTm = int64(src.ResponseLpTm())
-	dest.ResponseAbTm = int64(src.ResponseAbTm())
-
 	return dest
 }
 
 func PelicanPacketGoToCapn(seg *capn.Segment, src *PelicanPacket) PelicanPacketCapn {
 	dest := AutoNewPelicanPacketCapn(seg)
-	dest.SetResponseSerial(src.ResponseSerial)
-	dest.SetRequestSerial(src.RequestSerial)
+	dest.SetRequestSer(src.RequestSer)
+	dest.SetResponseSer(src.ResponseSer)
+	dest.SetPaysize(src.Paysize)
+	dest.SetRequestAbTm(src.RequestAbTm)
+	dest.SetRequestLpTm(src.RequestLpTm)
+	dest.SetResponseLpTm(src.ResponseLpTm)
+	dest.SetResponseAbTm(src.ResponseAbTm)
 	dest.SetKey(src.Key)
 
-	mylist1 := seg.NewUInt8List(len(src.Mac))
-	for i := range src.Mac {
-		mylist1.Set(i, uint8(src.Mac[i]))
+	mylist1 := seg.NewUInt8List(len(src.Paymac))
+	for i := range src.Paymac {
+		mylist1.Set(i, uint8(src.Paymac[i]))
 	}
-	dest.SetMac(mylist1)
+	dest.SetPaymac(mylist1)
 
 	mylist2 := seg.NewUInt8List(len(src.Payload))
 	for i := range src.Payload {
 		mylist2.Set(i, uint8(src.Payload[i]))
 	}
 	dest.SetPayload(mylist2)
-	dest.SetRequestAbTm(src.RequestAbTm)
-	dest.SetRequestLpTm(src.RequestLpTm)
-	dest.SetResponseLpTm(src.ResponseLpTm)
-	dest.SetResponseAbTm(src.ResponseAbTm)
 
 	return dest
 }

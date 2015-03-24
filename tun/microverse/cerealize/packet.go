@@ -1,16 +1,17 @@
-package schema
+package cerealize
 
 // the packets exchanged between Chaser and LongPoller.
 // We use the underlying (bambam generated) capnproto struct directly to avoid
 // copying Payload around too often.
 type PelicanPacket struct {
-	ResponseSerial int64  `capid:"0"` // -1 if this is a request
-	RequestSerial  int64  `capid:"1"` // -1 if this is a response
-	Key            string `capid:"2"`
-	Mac            []byte `capid:"3"`
-	Payload        []byte `capid:"4"`
-	RequestAbTm    int64  `capid:"5"`
-	RequestLpTm    int64  `capid:"6"`
-	ResponseLpTm   int64  `capid:"7"`
-	ResponseAbTm   int64  `capid:"8"`
+	RequestSer   int64  `capid:"0"` // -1 if this is a response
+	ResponseSer  int64  `capid:"1"` // -1 if this is a request
+	Paysize      int64  `capid:"2"`
+	RequestAbTm  int64  `capid:"3"`
+	RequestLpTm  int64  `capid:"4"`
+	ResponseLpTm int64  `capid:"5"`
+	ResponseAbTm int64  `capid:"6"`
+	Key          string `capid:"7"`
+	Paymac       []byte `capid:"8"`
+	Payload      []byte `capid:"9"`
 }

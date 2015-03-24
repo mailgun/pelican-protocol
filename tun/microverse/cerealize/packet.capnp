@@ -1,24 +1,20 @@
-@0xcb94a059ac955bad;
+@0xff1efbacb50003cb;
 using Go = import "go.capnp";
-$Go.package("main");
-$Go.import("testpkg");
+$Go.package("packet");
+##$Go.import("testpkg");
 
 
 struct PelicanPacketCapn { 
-   responseSerial  @0:   Int64; 
-   requestSerial   @1:   Int64; 
-   key             @2:   Text; 
-   mac             @3:   List(UInt8); 
-   payload         @4:   List(UInt8); 
-   requestAbTm     @5:   Int64; 
-   requestLpTm     @6:   Int64; 
-   responseLpTm    @7:   Int64; 
-   responseAbTm    @8:   Int64; 
+   requestSer    @0:   Int64; 
+   responseSer   @1:   Int64; 
+   paysize       @2:   Int64; 
+   requestAbTm   @3:   Int64; 
+   requestLpTm   @4:   Int64; 
+   responseLpTm  @5:   Int64; 
+   responseAbTm  @6:   Int64; 
+   key           @7:   Text; 
+   paymac        @8:   List(UInt8); 
+   payload       @9:   List(UInt8); 
 } 
-
-##compile with:
-
-##
-##
-##   capnp compile -ogo odir/schema.capnp
+#capnp compile -ogo packet.capnp
 
